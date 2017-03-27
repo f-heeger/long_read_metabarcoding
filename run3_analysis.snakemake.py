@@ -214,6 +214,14 @@ rule concat:
                         sample = inFile.split("/")[-1].rsplit("_",1)[0]
                         out.write("%s\t%s\n" % (rec.id, sample))
 
+rule itsx:
+    input:  "primers/all_minLen.fasta"
+    output: "itsx/all.SSU.fasta", "itsx/all.5_8S.fasta", "itsx/all.ITS2.fasta", "itsx/all.LSU.fasta", "itsx/all.summary.txt", "itsx/all.positions.txt"
+    threads: 6
+    log: "logs/all_itsx.log"
+    shell:
+        "%(itsx)s -t . -i {input} -o itsx/all --save_regions SSU,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 2> {log}" % config
+
 rule cluster:
     input: "primers/{sample}_minLen.fasta"
     output: fasta="clusters/{sample}_cluster.fasta", clstr="clusters/{sample}_cluster.fasta.clstr"

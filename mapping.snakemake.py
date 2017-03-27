@@ -1,0 +1,161 @@
+from snakemake.utils import min_version, R
+from Bio import SeqIO
+
+min_version("3.5.4")
+
+shell.prefix("sleep 10; ")
+
+samples = {"Lib4_0018": "mock",
+           "Lib1_0009": "CA1",
+           "Lib1_0027": "PC1",
+           "Lib1_0056": "Csp1",
+           "Lib1_0095": "CL1",
+           "Lib2_0009": "UM1",
+           "Lib2_0027": "PC2",
+           "Lib2_0056": "ME1",
+           "Lib3_0009": "SC1",
+           "Lib3_0027": "LS1",
+           "Lib3_0056": "Csp2",
+           "Lib3_0095": "DT1",
+           "Lib4_0009": "MR1",
+           "Lib4_0027": "EV1",
+           "Lib4_0056": "ME2",
+           "Lib5_0009": "CA2",
+           "Lib5_0027": "EV2",
+           "Lib5_0095": "DT2",
+           "Lib6_0009": "UM2",
+           "Lib6_0027": "IF1",
+           "Lib6_0095": "CL2",
+           "Lib7_0009": "SC2",
+           "Lib7_0027": "LS2",
+           "Lib7_0056": "PB1",
+           "Lib7_0095": "Psp1",
+           "Lib8_0009": "MR2",
+           "Lib8_0027": "IF2",
+           "Lib8_0056": "PB2",
+           "Lib8_0095": "Psp2",
+           }
+
+ref = ["LSU", "SSU", "ITS"]
+
+rule all:
+    input: "mapping/readPerSampleBarplot.pdf"
+
+rule mapping:
+    input: reads="primers/{sample}_minLen.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
+    output: m5="mapping/mapping/{sample}_vs_{ref}.m5"
+    threads: 3
+    shell: 
+        "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
+    
+rule getCls:
+    input: "mapping/mapping/{sample}_vs_{ref}.m5"
+    output: "mapping/matches/match_{sample}_{ref}.tsv"
+    run:
+        data={}
+
+        for line in open(input[0]):
+            qName, qLength, qStart, qEnd, qStrand, tName, tLength, tStart, tEnd, tStrand, score, numMatch, numMismatch, numIns, numDel, mapQV, qAlignedSeq, matchPattern, tAlignedSeq = [x for x in line.split(" ") if len(x)>0]
+            tcov = (int(tEnd)-int(tStart))/float(tLength)
+            if tcov < 0.9:
+                continue
+            ident = float(numMatch)/(int(qEnd)-int(qStart))
+            spec, marker = tName.split("/")[0].rsplit("_", 1)
+            assert marker == wildcards.ref
+            mData = (spec, ident, float(score))
+            try:
+                data[qName].append(mData)
+            except KeyError:
+                data[qName] = [mData]
+            
+        with open(output[0], "w") as out:
+            for qName, entryList in data.items():
+                if len(entryList) == 1:
+                    out.write(qName)
+                    out.write("\t%s\t%s\t%s\n" % entryList[0])
+                    continue
+                entryList.sort(key=lambda x: x[1])
+                best = entryList[0]
+                for entry in entryList[1:]:
+                    iDiff = best[1] - entry[1]
+                    if iDiff > 0.01:
+                        #this entry is 1% points less similar than the best: stop here
+                        break
+                    else:
+                        out.write(qName)
+                        out.write("\t%s\t%s\t%s\n" % entry)
+                
+                
+rule compareCls:
+    input: reads="primers/{sample}_minLen.fasta", its="mapping/matches/match_{sample}_ITS.tsv", ssu="mapping/matches/match_{sample}_SSU.tsv", lsu="mapping/matches/match_{sample}_LSU.tsv"
+    output: "mapping/{sample}_cls.tsv"
+    run:
+        its = {}
+        for line in open(input.its):
+            read, cls, ident, scr = line.strip().split("\t")
+            try:
+                its[read].append(cls)
+            except KeyError:
+                its[read] = [cls]
+        ssu = {}
+        for line in open(input.ssu):
+            read, cls, ident, scr = line.strip().split("\t")
+            try:
+                ssu[read].append(cls)
+            except KeyError:
+                ssu[read] = [cls]
+        lsu = {}
+        for line in open(input.lsu):
+            read, cls, ident, scr = line.strip().split("\t")
+            try:
+                lsu[read].append(cls)
+            except KeyError:
+                lsu[read] = [cls]
+        
+        unclear=0
+        unknown=0
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input.reads), "fasta"):
+                comb = set(its.get(rec.id,[])) & set(ssu.get(rec.id,[])) & set(lsu.get(rec.id,[]))
+                if len(comb) == 1:
+                    cls = comb.pop()
+                elif len(comb) == 0:
+                    cls = "unknown"
+                    unknown+=1
+                else:
+                    cls = "|".join(comb)
+                    unclear+=1
+                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (samples[wildcards.sample],
+                                                        rec.id, 
+                                                        "|".join(set(ssu.get(rec.id,["unknown"]))), 
+                                                        "|".join(set(its.get(rec.id,["unknown"]))), 
+                                                        "|".join(set(lsu.get(rec.id,["unknown"]))),
+                                                        cls))
+        print("%s: %i unknown, %i unclear" % (wildcards.sample, unknown, unclear))
+        
+rule concatCls:
+    input: expand("mapping/{sample}_cls.tsv", sample=samples)
+    output: "mapping/combinedCls.tsv"
+    shell:
+        "cat {input} > {output}"
+        
+rule plot:
+    input: "mapping/combinedCls.tsv"
+    output: bar="mapping/readPerSampleBarplot.pdf", heat="mapping/readPerSampleHeatmap.pdf", tab="mapping/readClassification.tsv"
+    run:
+        R("""
+        library(ggplot2)
+
+        d=read.table("{input}", sep="\t")
+        colnames(d) = c("sample", "read", "ssu_cls", "its_cls", "lsu_cls", "cls")
+
+        d$cls[d$cls=="unknown"] = NA
+        ggplot(d) + geom_bar(aes(sample, fill=cls)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggsave("{output.bar}")
+        a=aggregate(. ~ sample + cls, d, length)
+        ggplot(a) + geom_raster(aes(sample, cls, fill=log(read))) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggsave("{output.heat}")
+        a=aggregate(read~cls,d,FUN=length)
+        colnames(a) = c("cls", "readNumber")
+        write.table(a, "{output.tab}", quote=F, sep="\t", row.names=F)
+        """)

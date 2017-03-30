@@ -1,3 +1,5 @@
+import pickle
+
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -20,7 +22,8 @@ for lib, bcList in config["samples"].items():
 #print(sorted(samples))
 
 rule all:
-    input: "QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
+    input: expand("itsx/{sample}.summary.txt", sample=["Lib4_0018", "Lib3_0075", "Lib3_0034", "Lib7_0075", "Lib7_0034"])
+    #"QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
 rule unpack:
     input: "raw/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz"
@@ -114,9 +117,9 @@ rule fastq2fasta:
                 else:
                     out.write(read.format("fasta"))
 
-rule readNumbers:
-    input: raw=expand("raw/{sample}.fastq", sample=samples), length=expand("lenFilter/{sample}_rightLen.fastq", sample=samples), qual=expand("qualFilter/{sample}_goodQual.fastq", sample=samples), primer=expand("primers/{sample}_primer.fastq", sample=samples), minLen=expand("primers/{sample}_minLen.fasta", sample=samples)
-    output: "readNumbers.tsv"
+rule readNumbers_raw:
+    input: raw=expand("raw/{sample}.fastq", sample=samples)
+    output: "rawReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #raw
@@ -132,6 +135,11 @@ rule readNumbers:
                         i+=1
                 sample = rawFileName.rsplit("/", 1)[-1].split(".")[0]
                 out.write("raw\t%s\t%i\n" % (sample, i))
+rule readNumbers_maxLen:
+    input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=samples)
+    output: "maxLenReadNumbers.tsv"
+    run:
+        with open(output[0], "w") as out:
             #max lenght filter
             for lenFileName in input.length:
                 i=0
@@ -145,6 +153,12 @@ rule readNumbers:
                         i+=1
                 sample = lenFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("maxLenFilter\t%s\t%i\n" % (sample, i))
+
+rule readNumbers_qual:
+    input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=samples)
+    output: "qualReadNumbers.tsv"
+    run:
+        with open(output[0], "w") as out:
             #quality filter
             for qualFileName in input.qual:
                 i=0
@@ -158,6 +172,12 @@ rule readNumbers:
                         i+=1
                 sample = qualFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("qualFilter\t%s\t%i\n" % (sample, i))
+
+rule readNumbers_primer:
+    input: primer=expand("primers/{sample}_primer.fastq", sample=samples)
+    output: "primerReadNumbers.tsv"
+    run:
+        with open(output[0], "w") as out:
             #primer filter
             for primerFileName in input.primer:
                 i=0
@@ -171,11 +191,17 @@ rule readNumbers:
                         i+=1
                 sample = primerFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("primerFilter\t%s\t%i\n" % (sample, i))
+
+rule readNumbers_minLen:
+    input: minLen=expand("primers/{sample}_minLen.fasta", sample=samples)
+    output: "minLenReadNumbers.tsv"
+    run:
+        with open(output[0], "w") as out:
             #min length filter
             for minLenFileName in input.minLen:
                 i=0
                 with open(minLenFileName) as minLenFile:
-                    iter = SeqIO.parse(minLenFile, "fastq")
+                    iter = SeqIO.parse(minLenFile, "fasta")
                     while True:
                         try:
                             next(iter)
@@ -184,6 +210,13 @@ rule readNumbers:
                         i+=1
                 sample = minLenFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("minLenFilter\t%s\t%i\n" % (sample, i))
+
+rule catReadNumber:
+    input: "rawReadNumbers.tsv", "maxLenReadNumbers.tsv", "qualReadNumbers.tsv", "primerReadNumbers.tsv", "minLenReadNumbers.tsv"
+    output: "readNumbers.tsv"
+    shell: 
+        "cat {input} > {output}"
+        
 
 rule plotReadNumber:
     input: "readNumbers.tsv"
@@ -213,14 +246,6 @@ rule concat:
                         fasta.write(rec.format("fasta"))
                         sample = inFile.split("/")[-1].rsplit("_",1)[0]
                         out.write("%s\t%s\n" % (rec.id, sample))
-
-rule itsx:
-    input:  "primers/all_minLen.fasta"
-    output: "itsx/all.SSU.fasta", "itsx/all.5_8S.fasta", "itsx/all.ITS2.fasta", "itsx/all.LSU.fasta", "itsx/all.summary.txt", "itsx/all.positions.txt"
-    threads: 6
-    log: "logs/all_itsx.log"
-    shell:
-        "%(itsx)s -t . -i {input} -o itsx/all --save_regions SSU,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 2> {log}" % config
 
 rule cluster:
     input: "primers/{sample}_minLen.fasta"
@@ -276,137 +301,138 @@ rule clusterSize:
 
 rule consensus:
     input: clusterTab="clusters/{sample}_cluster.fasta.clstr", clusterSeq="clusters/{sample}_cluster.fasta", reads="primers/{sample}_minLen.fasta"
-    output: consensus="consensus/{sample}_consensus.fasta"
+    output: consensus="consensus/{sample}_consensus.fasta", reads="clusters/{sample}_cluster_reads.pic"
     log: aln="logs/{sample}_align.log", cons="logs/{sample}_consensus.log"
-    params: minSize=10
+    params: minSize=3
     threads: 6
     run:
         minSize = params.minSize
-        clusterReads = []
+        clusterReads = {}
+        tReads = None
+        repSeq = None
         for line in open(input.clusterTab):
             if line[0] == ">":
                 #new cluster
-                clusterReads.append([])
+                if not tReads is None:
+                    assert not repSeq is None
+                    clusterReads[repSeq] = tReads
+                tReads = []
+                repSeq = None
             else:
                 #add to cluster
                 redNum, seqInfo = line.strip().split("\t")
                 lenStr, idStr, matchStr = seqInfo.split(" ", 2)
                 readId = idStr[1:-3]
-                clusterReads[-1].append(readId)
+                tReads.append(readId)
+                if matchStr == "*":
+                    repSeq = readId
+        #last cluster
+        if not tReads is None:
+            assert not repSeq is None
+            clusterReads[repSeq] = tReads
+        with open(output.reads, "wb") as pOut:
+            pickle.dump(clusterReads, pOut)
         readRecs = {r.id: r for r in SeqIO.parse(open(input.reads), "fasta")}
-        with open(output[0], "w") as out, open(log.cons, "w") as consLog:
-            for c, clusterRec in enumerate(SeqIO.parse(open(input.clusterSeq), "fasta")):
-                size = len(clusterReads[c])
+        with open(output.consensus, "w") as out, open(log.cons, "w") as consLog:
+            for clusterRec in SeqIO.parse(open(input.clusterSeq), "fasta"):
+                size = len(clusterReads[clusterRec.id])
                 if size < minSize:
                     continue
                 baseFileName = "consensus/tmp_%s_%s" % (wildcards.sample, clusterRec.id.replace("/","_"))
-#                #write representative sequence to temp file as reference
-#                refFilePath = "%s.fasta" % baseFileName
-#                with open(refFilePath, "w") as refFile:
-#                    clusterRec.id = "%s;size=%i;" % (clusterRec.id, size)
-#                    refFile.write(clusterRec.format("fasta"))
-                #write all read in the cluster to temp file as query reads
+                #write all reads in the cluster to temp file
                 readFilePath = "%s_reads.fasta" % baseFileName
                 with open(readFilePath, "w") as readFile:
-                    for readId in clusterReads[c]:
+                    for readId in clusterReads[clusterRec.id]:
                         readFile.write(readRecs[readId].format("fasta"))
                 alignmentPath="%s_align.fasta" % baseFileName
-#                shell("%(bbmap)s" % config + "ref=%s in=%s maxindel=10 minid=0.9 threads={threads} out=%s &>> {log.aln}" % (refFilePath, readFilePath, alignmentPath))
+                #run alignment
                 shell("%(mafft)s" % config + " --ep 1 --thread {threads} %s > %s 2> {log.aln}" % (readFilePath, alignmentPath))
                 #consensus
                 consLog.write("======== %s\n" % clusterRec.id)
-#                cons=samConsensus(open(alignmentPath), log=consLog)
                 cons = fastaConsensus(open(alignmentPath), log=consLog)
                 out.write(">%s;size=%i;\n%s\n" % (clusterRec.id, size, cons))
 #        shell("rm consensus/tmp_*")
 
-rule cluster2:
-    input: "consensus/{sample}_consensus.fasta"
-    output: fasta="clusters2/{sample}_cluster2.fasta", clstr="clusters2/{sample}_cluster2.fasta.clstr"
-    log: "logs/{sample}_clustering2.log"
-    threads: 3
-    shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.99 -r 0 -d 0 -T {threads} &> {log}" % config
-        
-rule cluster2Sizes:
-    input: clsInfo="clusters2/{sample}_cluster2.fasta.clstr"
-    output: "clusters2/{sample}_cluster2.size.tsv"
+
+rule prepChimeraRemoval:
+    input: cls="clusters/{sample}_cluster.fasta", clsTab="clusters/{sample}_cluster.fasta.clstr"
+    output: "clusters/{sample}_cluster_size.fasta"
     run:
-        clusters = []
+        clusterSize = []
         rep=[]
-        for line in open(input.clsInfo):
+        for line in open(input.clsTab):
             if line[0] == ">":
                 #new cluster
-                clusters.append(0)
+                clusterSize.append(0)
             else:
                 lenStr, nameStr, infoStr=line.strip().split("\t")[1].split(" ", 2)
-                name, sizeStr, _ = nameStr[1:].split(";")
-                size = int(sizeStr.split("=")[1])
+                name = nameStr[1:-3]
                 if infoStr == "*":
                     rep.append(name)
-                clusters[-1] += size
+                clusterSize[-1] += 1
+        sizeDict = dict(zip(rep, clusterSize))
         with open(output[0], "w") as out:
-            for c, size in enumerate(clusters):
-                out.write("%s\tCluster %i\t%s\t%i\n" % (wildcards.sample, c, rep[c], size))
+            for r, rec in enumerate(SeqIO.parse(open(input.cls), "fasta")):
+                if sizeDict[rec.id] <2:
+                    continue
+                rec.id = "%s;size=%i;" % (rec.id, sizeDict[rec.id])
+                rec.description = ""
+                out.write(rec.format("fasta"))
 
-#rule consensus2:
-#    input: clusterTab="clusters2/{sample}_cluster2.fasta.clstr", clusterSeq="clusters2/{sample}_cluster2.fasta", reads="consensus/{sample}_consensus.fasta"
-#    output: consensus="consensus2/{sample}_consensus2.fasta"
-#    log: cons="logs/{sample}_consensus2.log", aln="logs/{sample}_align2.log"
-#    params: minSize=2
-#    threads: 6
-#    run:
-
-
-#rule prepChimeraRemoval:
-#    input: cls="clusters/{sample}_cluster.fasta", size="clusters/{sample}_cluster.size.tsv"
-#    output: "clusters/{sample}_cluster_size.fasta"
-#    run:
-#        size={}
-#        for line in open(input.size):
-#            sample, cls, rId, sz = line.strip().split("\t")
-#            size[cls] = int(sz)
-#        recStr=[]
-#        for r, rec in enumerate(SeqIO.parse(open(input.cls), "fasta")):
-#            rec.id = "%s;size=%i;" % (rec.id, size["Cluster %i" % r])
-#            rec.description = rec.description.split(" ", 1)[1]
-#            recStr.append((size["Cluster %i" % r], rec.format("fasta")))
-#        recStr.sort(key=lambda x: x[0], reverse=True)
-#        
-#        with open(output[0], "w") as out:
-#            for rec in recStr:
-#                out.write(rec[1])
-                
 rule removeChimera:
-    input: seqs="primers/{sample}_minLen.fasta", ref="consensus2/all_consensus2.fasta"
+    input: seqs="consensus/{sample}_consensus.fasta"
     output: fasta="chimera/{sample}.nochimera.fasta", tsv="chimera/{sample}.chimeraReport.tsv"
     log: "logs/{sample}_chimera.log"
-    threads: 3
     shell:
-        "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} --threads {threads} &> {log}" % config
+        "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
+
+rule removeChimeraNoCons:
+    input: seqs="clusters/{sample}_cluster_size.fasta"
+    output: fasta="chimeraNoCons/{sample}.nochimera.fasta", tsv="chimeraNoCons/{sample}.chimeraReport.tsv"
+    log: "logs/{sample}_chimeraNoCons.log"
+    shell:
+        "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
+
+rule nonChimeraReads:
+    input: noChim="chimera/{sample}.nochimera.fasta", reads="primers/{sample}_minLen.fasta", cluster2read="clusters/{sample}_cluster_reads.pic"
+    output: "chimera/{sample}.nochimeraReads.fasta"
+    run:
+        goodReads = {}
+        with open(input.cluster2read, "rb") as pIn:
+            clu2read = pickle.load(pIn)
+        for rec in SeqIO.parse(open(input.noChim), "fasta"):
+            try:
+                readName = rec.id.split(";")[0]
+                for readId in clu2read[readName]:
+                    goodReads[readId] = None
+            except KeyError:
+                pass
+        with open(output[0], "w") as out:
+            for readRec in SeqIO.parse(input.reads, "fasta"):
+                if readRec.id.split(";")[0] in goodReads:
+                    out.write(readRec.format("fasta"))
 
 rule itsx:
-    input: "chimera/{sample}.nochimera.fasta"
+    input:  "chimera/{sample}.nochimeraReads.fasta"
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt"
+    threads: 6
     log: "logs/{sample}_itsx.log"
-    threads: 3
     shell:
-        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 200 2> {log}" % config
-        
+        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 2> {log}" % config
 
 
 ####################################################################
 # quick and dirty classify
 
 rule alignToUnite:
-    input: clu="clusters2/{sample}_cluster2.fasta", db="%(dbFolder)s/sh_general_release_dynamic_22.08.2016.fasta" % config, dbFlag="%(dbFolder)s/sh_general_release_dynamic_22.08.2016.fasta.lambdaIndexCreated" % config
+    input: clu="clusters2/{sample}_cluster2.fasta", db="%(dbFolder)s/UNITE_public_20.11.2016.fasta" % config, dbFlag="%(dbFolder)s/UNITE_public_20.11.2016.fasta.lambdaIndexCreated" % config
     output: "lambda/{sample}.clu_vs_UNITE.m8"
     log: "logs/{sample}_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
 
-rule its_classify:
+rule classify:
     input: lam="lambda/{sample}.clu_vs_UNITE.m8", clu="clusters2/{sample}_cluster2.fasta"
     output: "taxonomy/{sample}.clu.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
@@ -437,7 +463,7 @@ rule its_classify:
 #            if float(length)/seqLength[readId]*100 < params.minCov:
 #                covFilter += 1
 #                continue
-            linStr = sseqid.rsplit("|", 1)[-1]
+            linStr = sseqid.rsplit("|", 2)[1]
             if linStr.endswith("Incertae"):
                 linStr += "_sedis" #FIXME: workaroud for taking the tayonomy from the fasta header which ends at a space. Wither fix fasta headers or take taxonomy from UNITE taxonomy file
             classifi[qseqid].append((linStr, float(bitscore)))
@@ -516,6 +542,44 @@ def lca(lineageStrings, stringency=1.0,
 
 
 #####################################################################
+
+#rule cluster2:
+#    input: "consensus/{sample}_consensus.fasta"
+#    output: fasta="clusters2/{sample}_cluster2.fasta", clstr="clusters2/{sample}_cluster2.fasta.clstr"
+#    log: "logs/{sample}_clustering2.log"
+#    threads: 3
+#    shell:
+#        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.99 -r 0 -d 0 -T {threads} &> {log}" % config
+#        
+#rule cluster2Sizes:
+#    input: clsInfo="clusters2/{sample}_cluster2.fasta.clstr"
+#    output: "clusters2/{sample}_cluster2.size.tsv"
+#    run:
+#        clusters = []
+#        rep=[]
+#        for line in open(input.clsInfo):
+#            if line[0] == ">":
+#                #new cluster
+#                clusters.append(0)
+#            else:
+#                lenStr, nameStr, infoStr=line.strip().split("\t")[1].split(" ", 2)
+#                name, sizeStr, _ = nameStr[1:].split(";")
+#                size = int(sizeStr.split("=")[1])
+#                if infoStr == "*":
+#                    rep.append(name)
+#                clusters[-1] += size
+#        with open(output[0], "w") as out:
+#            for c, size in enumerate(clusters):
+#                out.write("%s\tCluster %i\t%s\t%i\n" % (wildcards.sample, c, rep[c], size))
+
+#rule consensus2:
+#    input: clusterTab="clusters2/{sample}_cluster2.fasta.clstr", clusterSeq="clusters2/{sample}_cluster2.fasta", reads="consensus/{sample}_consensus.fasta"
+#    output: consensus="consensus2/{sample}_consensus2.fasta"
+#    log: cons="logs/{sample}_consensus2.log", aln="logs/{sample}_align2.log"
+#    params: minSize=2
+#    threads: 6
+#    run:
+
 
 
 #rule creatRefIndex:

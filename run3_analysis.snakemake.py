@@ -422,7 +422,57 @@ rule itsx:
 
 
 ####################################################################
-# quick and dirty classify
+# DBs
+
+rule getUniteFile:
+    output: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://unite.ut.ee/sh_files/sh_general_release_%(uniteVersion)s.zip;" \
+        "unzip sh_general_release_%(uniteVersion)s.zip;" \
+        "rm sh_general_release_%(uniteVersion)s.zip" % config
+
+rule creatUniteIndex:
+    input: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
+    output: touch("%(dbFolder)s/unite.lambdaIndexCreated" % config)
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -p blastn -t {threads}" % config
+
+rule getSilva_main:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/current/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz" % config
+
+rule getSilva_md5:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    shell: 
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/current/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    
+rule getSilva_test:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    output: touch("%(dbFolder)s/silva_{marker}dl_good")
+    shell: 
+        "cd %(dbFolder)s;" \
+        "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+
+rule unpackSilva:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, good="%(dbFolder)s/silva_{marker}dl_good" % config
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "gunzip SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz" % config
+        
+rule creatSilvaIndex:
+    input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
+    output: touch("%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config)
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -p blastn -t {threads}" % config
+
+####################################################################
 
 rule alignToUnite:
     input: clu="clusters2/{sample}_cluster2.fasta", db="%(dbFolder)s/UNITE_public_20.11.2016.fasta" % config, dbFlag="%(dbFolder)s/UNITE_public_20.11.2016.fasta.lambdaIndexCreated" % config

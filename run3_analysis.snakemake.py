@@ -22,7 +22,7 @@ for lib, bcList in config["samples"].items():
 #print(sorted(samples))
 
 rule all:
-    input: expand("itsx/{sample}.summary.txt", sample=["Lib4_0018", "Lib3_0075", "Lib3_0034", "Lib7_0075", "Lib7_0034"])
+    input: expand("taxonomy/{sample}_comb.class.tsv", sample=["Lib4_0018", "Lib3_0075", "Lib3_0034", "Lib7_0075", "Lib7_0034"])
     #"QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
 rule unpack:
@@ -413,13 +413,72 @@ rule nonChimeraReads:
                     out.write(readRec.format("fasta"))
 
 rule itsx:
-    input:  "chimera/{sample}.nochimeraReads.fasta"
-    output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt"
+    input: "chimera/{sample}.nochimeraReads.fasta"
+#    input: "chimera/{sample}.nochimera.fasta"
+    output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
     log: "logs/{sample}_itsx.log"
     shell:
         "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 2> {log}" % config
 
+
+rule otuCluster:
+    input: "itsx/{sample}.full.fasta"
+    output: fasta="otus/{sample}_otus.fasta", clstr="otus/{sample}_otus.fasta.clstr"
+    log: "logs/{sample}_otuClustering.log"
+    threads: 3
+    params: mem=16000
+    shell:
+        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.97 -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
+
+rule otuReads:
+    input: clsInfo="otus/{sample}_otus.fasta.clstr"
+    output: size="otus/{sample}_cluster.size.tsv", info="otus/{sample}_otuInfo.pic"
+    run:
+        clusterReads={}
+        tReads = None
+        repSeq = None
+        for line in open(input.clsInfo):
+            if line[0] == ">":
+                #new cluster
+                if not tReads is None:
+                    assert not repSeq is None
+                    clusterReads[repSeq] = tReads
+                tReads = []
+                repSeq = None
+            else:
+                #add to cluster
+                redNum, seqInfo = line.strip().split("\t")
+                lenStr, idStr, matchStr = seqInfo.split(" ", 2)
+                readId = "%s/ITS" % idStr[1:-3].split("|")[0]
+                tReads.append(readId)
+                if matchStr == "*":
+                    repSeq = readId
+        #last cluster
+        if not tReads is None:
+            assert not repSeq is None
+            clusterReads[repSeq] = tReads
+        otuInf = {}
+        with open(output.size, "w") as sOut:
+            for otu, readList in clusterReads.items():
+                for read in readList:
+                    otuInf[read.rsplit("/", 1)[0]] = otu
+                sOut.write("%s\t%i\n" % (otu, len(readList)))
+        with open(output.info, "wb") as pOut:
+            pickle.dump(otuInf, pOut)
+        
+
+rule transferOtus:
+    input: pic="otus/{sample}_otuInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
+    output: "otus/{sample}_otus_{marker}.fasta"
+    run:
+        read2otu = pickle.load(open(input.pic, "rb"))
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+                readId = rec.id.split("|")[0]
+                if readId in read2otu:
+                    rec.id = "%s/%s" % (readId, wildcards.marker)
+                    out.write(rec.format("fasta"))
 
 ####################################################################
 # DBs
@@ -432,13 +491,26 @@ rule getUniteFile:
         "unzip sh_general_release_%(uniteVersion)s.zip;" \
         "rm sh_general_release_%(uniteVersion)s.zip" % config
 
-rule creatUniteIndex:
+rule createUniteTax:
     input: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
-    output: touch("%(dbFolder)s/unite.lambdaIndexCreated" % config)
+    output: fasta="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    run:
+        with open(output.tax, "w") as tOut, open(output.fasta, "w") as fOut:
+            for rec in SeqIO.parse(open(input[0]), "fasta"):
+                arr = rec.id.split("|")
+                sh = arr[2]
+                tax = arr[-1]
+                tOut.write("%s\t%s\n" % (sh, tax))
+                rec.id = sh
+                fOut.write(rec.format("fasta"))
+
+rule creatUniteIndex:
+    input: "%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config
+    output: touch("%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config)
     threads: 6
     shell:
         "%(lambdaFolder)s/lambda_indexer -d {input} -p blastn -t {threads}" % config
-
+        
 rule getSilva_main:
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config
     shell:
@@ -453,7 +525,7 @@ rule getSilva_md5:
     
 rule getSilva_test:
     input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
-    output: touch("%(dbFolder)s/silva_{marker}dl_good")
+    output: touch("%(dbFolder)s/silva_{marker}dl_good" % config)
     shell: 
         "cd %(dbFolder)s;" \
         "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
@@ -463,8 +535,18 @@ rule unpackSilva:
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
     shell:
         "cd %(dbFolder)s;" \
-        "gunzip SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz" % config
-        
+        "gunzip SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz; " \
+        "touch SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta" % config
+
+rule createSlivaTax:
+    input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
+    output: tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    run:
+        with open(output.tax, "w") as tOut:
+            for rec in SeqIO.parse(open(input[0]), "fasta"):
+                tax = rec.description.split(" ", 1)[1].replace(" ", "_")
+                tOut.write("%s\t%s\n" % (rec.id, tax))
+
 rule creatSilvaIndex:
     input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
     output: touch("%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config)
@@ -474,20 +556,25 @@ rule creatSilvaIndex:
 
 ####################################################################
 
+
 rule alignToUnite:
-    input: clu="clusters2/{sample}_cluster2.fasta", db="%(dbFolder)s/UNITE_public_20.11.2016.fasta" % config, dbFlag="%(dbFolder)s/UNITE_public_20.11.2016.fasta.lambdaIndexCreated" % config
-    output: "lambda/{sample}.clu_vs_UNITE.m8"
-    log: "logs/{sample}_lambda.log"
+    input: clu="otus/{sample}_otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, dbFlag="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config
+    output: "lambda/{sample}.otu_vs_UNITE.m8"
+    log: "logs/{sample}_otu_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
 
-rule classify:
-    input: lam="lambda/{sample}.clu_vs_UNITE.m8", clu="clusters2/{sample}_cluster2.fasta"
-    output: "taxonomy/{sample}.clu.class.tsv"
+rule classifyITS:
+    input: lam="lambda/{sample}.otu_vs_UNITE.m8", clu="otus/{sample}_otus.fasta", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    output: "taxonomy/{sample}_otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_uniteClass.log"
+    log: "logs/{sample}_otuClass.log"
     run:
+        taxDict = {}
+        for line in open(input.tax):
+            sh, tax = line.strip().split("\t")
+            taxDict[sh] = tax
         logOut = open(log[0], "w")
         classifi = {}
         seqLength = {}
@@ -496,14 +583,14 @@ rule classify:
         evalueFilter = 0
         identFilter = 0
         covFilter = 0
-        for rec in SeqIO.parse(open(input.clu), "fasta"):
-            seqNr += 1
-            classifi[rec.id] = []
-            seqLength[rec.id] = len(rec)
+#        for rec in SeqIO.parse(open(input.clu), "fasta"):
+#            seqNr += 1
+#            classifi[rec.id] = []
+#            seqLength[rec.id] = len(rec)
         for line in open(input.lam, encoding="latin-1"):
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore = line.strip().split("\t")
-            readId = qseqid
+            readId = qseqid.split("|")[0]
             if float(evalue) > params.maxE:
                 evalueFilter += 1
                 continue
@@ -513,10 +600,11 @@ rule classify:
 #            if float(length)/seqLength[readId]*100 < params.minCov:
 #                covFilter += 1
 #                continue
-            linStr = sseqid.rsplit("|", 2)[1]
-            if linStr.endswith("Incertae"):
-                linStr += "_sedis" #FIXME: workaroud for taking the tayonomy from the fasta header which ends at a space. Wither fix fasta headers or take taxonomy from UNITE taxonomy file
-            classifi[qseqid].append((linStr, float(bitscore)))
+            linStr = taxDict[sseqid]
+            try:
+                classifi[readId].append((linStr, float(bitscore)))
+            except KeyError:
+                classifi[readId] = [(linStr, float(bitscore))]
         logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
         logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
         logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
@@ -538,6 +626,103 @@ rule classify:
         except:
             pass
 
+rule alignToSliva:
+    input: clu="otus/{sample}_otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
+    output: "lambda/{sample}.{marker}_vs_SILVA.m8"
+    log: "logs/{sample}_otu{marker}_lambda.log"
+    threads: 3
+    shell:
+        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
+
+rule classifySilva:
+    input: lam="lambda/{sample}.{marker}_vs_SILVA.m8", clu="otus/{sample}_otus.fasta", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    output: "taxonomy/{sample}_otu_{marker}.class.tsv"
+    params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
+    log: "logs/{sample}_{marker}_otuClass.log"
+    run:
+        taxDict={}
+        for line in open(input.tax):
+            rId, tax = line.strip().split("\t")
+            taxDict[rId] = tax
+        logOut = open(log[0], "w")
+        classifi = {}
+        seqLength = {}
+        seqNr = 0
+        total = 0
+        evalueFilter = 0
+        identFilter = 0
+        covFilter = 0
+#        for rec in SeqIO.parse(open(input.clu), "fasta"):
+#            seqNr += 1
+#            classifi[rec.id] = []
+#            seqLength[rec.id] = len(rec)
+        for line in open(input.lam, encoding="latin-1"):
+            total +=1
+            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore = line.strip().split("\t")
+            readId = qseqid
+            if float(evalue) > params.maxE:
+                evalueFilter += 1
+                continue
+            if float(pident) < params.minIdent:
+                identFilter +=1
+                continue
+#            if float(length)/seqLength[readId]*100 < params.minCov:
+#                covFilter += 1
+#                continue
+            linStr = taxDict[sseqid]
+            try:
+                classifi[qseqid].append((linStr, float(bitscore)))
+            except KeyError:
+                classifi[qseqid]= [(linStr, float(bitscore))]
+        logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
+        logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
+        logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
+        logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
+        topPerc = params.topPerc/100.0
+        with open(output[0], "w") as out:
+            for key, hits in classifi.items():
+                if not hits:
+                    out.write("%s\tunknown\n" % (key))
+                else:
+                    sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
+                    cutoff = 0
+                    while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
+                        cutoff += 1
+                    lineage = lca([hit[0] for hit in sortedHits[:cutoff]], params.stringency)
+                    out.write("%s\t%s\n" % (key, lineage))
+        try:
+            logOut.close()
+        except:
+            pass
+
+
+rule compareCls:
+    input: ssu="taxonomy/{sample}_otu_SSU.class.tsv", its="taxonomy/{sample}_otu_ITS.class.tsv", lsu="taxonomy/{sample}_otu_LSU.class.tsv", read2otu="otus/{sample}_otuInfo.pic"
+    output: "taxonomy/{sample}_comb.class.tsv"
+    params: stringency=.90
+    run:
+        read2otu = pickle.load(open(input.read2otu, "rb"))
+        otu2read = {}
+        for read, otu in read2otu.items():
+            try:
+                otu2read[otu].append(read)
+            except KeyError:
+                otu2read[otu] = [read]
+        ssu = {}
+        for line in open(input.ssu):
+            ssuId, ssuTax = line.strip().split("\t")
+            ssu[ssuId] = ssuTax
+        lsu = {}
+        for line in open(input.lsu):
+            lsuId, lsuTax = line.strip().split("\t")
+            lsu[lsuId] = lsuTax
+        with open(output[0], "w") as out:
+            for line in open(input.its):
+                itsId, itsTax = line.strip().split("\t")
+                otuReads = otu2read["%s/ITS" % itsId]
+                lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
+                ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
+                out.write("%s\t%s\t%s\n" % (ssuTax, itsTax, lsuTax))
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],
@@ -631,121 +816,6 @@ def lca(lineageStrings, stringency=1.0,
 #    run:
 
 
-
-#rule creatRefIndex:
-#    input: "references/all.fasta"
-#    output: touch("references/lambdaIndexCreated")
-#    threads: 3
-#    shell:
-#        "%(lambdaFolder)s/lambda_indexer -d {input} -p blastn -t {threads}" % config
-
-#rule compareToRef:
-#    input: seqs="primers/{sample}_minLen.fasta", db="references/all.fasta", dbFlag="references/lambdaIndexCreated"
-#    output: "lambda/{sample}_vs_refs.m8"
-#    log: "logs/{sample}_lambda.log"
-#    threads: 3
-#    shell:
-#        "%(lambdaFolder)s/lambda -q {input.seqs} -d {input.db} -o {output} -p blastn -t {threads} -id 90 &> {log}" % config
-#        
-
-#rule mapping:
-#    input: reads="clusters2/{sample}_cluster2.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
-#    output: m5="cluster_mapping/{sample}_vs_{ref}.m5"
-#    threads: 3
-#    shell: 
-#        "%(blasr)s -m 5 --bestn 20000 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.ref} {input.reads}" % config
-#    
-#rule getCls:
-#    input: "cluster_mapping/{sample}_vs_{ref}.m5"
-#    output: "cluster_mapping/match_{sample}_{ref}.tsv"
-#    run:
-#        data={}
-
-#        for line in open(input[0]):
-#            qName, qLength, qStart, qEnd, qStrand, tName, tLength, tStart, tEnd, tStrand, score, numMatch, numMismatch, numIns, numDel, mapQV, qAlignedSeq, matchPattern, tAlignedSeq = [x for x in line.split(" ") if len(x)>0]
-#            qcov = (int(qEnd)-int(qStart))/float(qLength)
-#            if qcov < 0.9:
-#                continue
-#            ident = float(numMatch)/(int(qEnd)-int(qStart))
-#            spec, marker = qName.split("/")[0].rsplit("_", 1)
-#            assert marker == wildcards.ref
-#            mData = (spec, ident, float(score))
-#            try:
-#                data[tName].append(mData)
-#            except KeyError:
-#                data[tName] = [mData]
-#            
-#        with open(output[0], "w") as out:
-#            for tName, entryList in data.items():
-#                if len(entryList) == 1:
-#                    out.write(tName)
-#                    out.write("\t%s\t%s\t%s\n" % entryList[0])
-#                    continue
-#                entryList.sort(key=lambda x: x[1])
-#                best = entryList[0]
-#                for entry in entryList[1:]:
-#                    iDiff = best[1] - entry[1]
-#                    if iDiff > 0.01:
-#                        #this entry is 1% points less similar than the best: stop here
-#                        break
-#                    else:
-#                        out.write(tName)
-#                        out.write("\t%s\t%s\t%s\n" % entry)
-#                
-#                
-#rule compareCls:
-#    input: reads="clusters2/{sample}_cluster2.fasta", its="cluster_mapping/match_{sample}_ITS.tsv", ssu="cluster_mapping/match_{sample}_SSU.tsv", lsu="cluster_mapping/match_{sample}_LSU.tsv"
-#    output: "cluster_mapping/{sample}_cls.tsv"
-#    run:
-#        its = {}
-#        for line in open(input.its):
-#            read, cls, ident, scr = line.strip().split("\t")
-#            try:
-#                its[read].append(cls)
-#            except KeyError:
-#                its[read] = [cls]
-#        ssu = {}
-#        for line in open(input.ssu):
-#            read, cls, ident, scr = line.strip().split("\t")
-#            try:
-#                ssu[read].append(cls)
-#            except KeyError:
-#                ssu[read] = [cls]
-#        lsu = {}
-#        for line in open(input.lsu):
-#            read, cls, ident, scr = line.strip().split("\t")
-#            try:
-#                lsu[read].append(cls)
-#            except KeyError:
-#                lsu[read] = [cls]
-#        
-#        unclear=0
-#        unknown=0
-#        with open(output[0], "w") as out:
-#            for rec in SeqIO.parse(open(input.reads), "fasta"):
-#                comb = set(its.get(rec.id,[])) & set(ssu.get(rec.id,[])) & set(lsu.get(rec.id,[]))
-#                if len(comb) == 1:
-#                    cls = comb.pop()
-#                elif len(comb) == 0:
-#                    cls = "unknown"
-#                    unknown+=1
-#                else:
-#                    cls = "|".join(comb)
-#                    unclear+=1
-#                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (wildcards.sample,
-#                                                        rec.id, 
-#                                                        "|".join(set(ssu.get(rec.id,["unknown"]))), 
-#                                                        "|".join(set(its.get(rec.id,["unknown"]))), 
-#                                                        "|".join(set(lsu.get(rec.id,["unknown"]))),
-#                                                        cls))
-#        print("%s: %i unknown, %i unclear" % (wildcards.sample, unknown, unclear))
-#        
-
-#rule concatCls:
-#    input: expand("cluster_mapping/{sample}_cls.tsv", sample=samples)
-#    output: "cluster_cls.tsv"
-#    shell:
-#        "cat {input} > {output}"
 
 def fastaConsensus(inFasta, warn=0.75, log=sys.stderr):
     prof = []

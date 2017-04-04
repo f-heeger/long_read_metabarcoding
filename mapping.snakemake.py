@@ -280,3 +280,58 @@ rule compareCluCls:
                                                         "|".join(set(lsu.get(rec.id,["unknown"]))),
                                                         cls))
         print("%s: %i unknown, %i unclear" % (wildcards.sample, unknown, unclear))
+        
+
+rule removeChimeraRef:
+    input: seqs="primers/{sample}_minLen.fasta", ref="isolateSeqs.fasta"
+    output: fasta="chimeraRef/{sample}.nochimera.fasta", tsv="chimeraRef/{sample}.chimeraReport.tsv"
+    log: "logs/{sample}_refChimera.log"
+    shell:
+        "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
+
+rule fullMapping:
+    input: reads="chimeraRef/{sample}.nochimera.fasta", ref="isolateSeqs.fasta"
+    output: m5="mapping/fullMapping/{sample}_vs_isolates.m5"
+    threads: 6
+    shell: 
+        "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
+
+rule getFullCls:
+    input: m5="mapping/fullMapping/{sample}_vs_isolates.m5", chimera="chimeraRef/{sample}.chimeraReport.tsv"
+    output: matches="mapping/fullMatches/match_{sample}_isolates.tsv", assign="mapping/assignment/{sample}_assignments.tsv"
+    run:
+        data={}
+
+        for line in open(input.m5):
+            qName, qLength, qStart, qEnd, qStrand, tName, tLength, tStart, tEnd, tStrand, score, numMatch, numMismatch, numIns, numDel, mapQV, qAlignedSeq, matchPattern, tAlignedSeq = [x for x in line.split(" ") if len(x)>0]
+            qcov = (int(qEnd)-int(qStart))/float(qLength)
+            if qcov < 0.9:
+                continue
+            ident = float(numMatch)/(int(qEnd)-int(qStart))
+            spec = tName.split("_")[2]
+            mData = (ident, float(score))
+            rId = qName.rsplit("/", 1)[0]
+            try:
+                qData = data[rId]
+            except KeyError:
+                data[rId] = {spec: mData}
+            else:
+                if not spec in qData or mData[0] > qData[spec][0]:
+                    qData[spec] = mData
+            
+        with open(output.matches, "w") as out:
+            for rId, entryDict in data.items():
+                for spec, entry in entryDict.items():
+                    out.write("%s\t%s\t%s\t%s\t%i\n" % (rId, spec, entry[0], entry[1], len(entryDict)))
+        with open(output.assign, "w") as out:
+            for line in open(input.chimera):
+                arr = line.strip().split("\t")
+                rId = arr[1]
+                if arr[-1] != "N":
+                    out.write("%s\tCHIMERA\n" % rId)
+                elif rId in data:
+                    matchDict = data[rId]
+                    best = sorted(matchDict.items(), key=lambda x: x[1][1])[0]
+                    out.write("%s\t%s\n" % (rId, best[0]))
+                else:
+                    out.write("%s\tUNKNOWN\n" % rId)

@@ -353,7 +353,6 @@ rule consensus:
                 out.write(">%s;size=%i;\n%s\n" % (clusterRec.id, size, cons))
 #        shell("rm consensus/tmp_*")
 
-
 rule prepChimeraRemoval:
     input: cls="clusters/{sample}_cluster.fasta", clsTab="clusters/{sample}_cluster.fasta.clstr"
     output: "clusters/{sample}_cluster_size.fasta"
@@ -777,6 +776,95 @@ def lca(lineageStrings, stringency=1.0,
 
 
 #####################################################################
+
+rule indiCluster:
+    input: "itsx/{sample}.{marker}.fasta" #"itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta"
+    output: fasta="indiCluster/{sample}_{marker}_clu.fasta", clstr="indiCluster/{sample}_{marker}_clu.fasta.clstr"
+    log: "logs/{sample}_indiClustering_{marker}.log"
+    threads: 6
+    shell:
+        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.97 -r 0 -d 0 -T {threads} &> {log}" % config
+
+rule cp58s:
+    input: "itsx/{sample}.5_8S.fasta"
+    output: "itsx/{sample}.58S.fasta"
+    shell:
+        "cp {input} {output}"
+
+rule indiCluReads:
+    input: clsInfo="indiCluster/{sample}_{marker}_clu.fasta.clstr"
+    output: info="indiCluster/{sample}_{marker}_cluInfo.pic"
+    run:
+        clusterReads={}
+        tReads = None
+        repSeq = None
+        for line in open(input.clsInfo):
+            if line[0] == ">":
+                #new cluster
+                if not tReads is None:
+                    assert not repSeq is None
+                    clusterReads[repSeq] = tReads
+                tReads = []
+                repSeq = None
+            else:
+                #add to cluster
+                redNum, seqInfo = line.strip().split("\t")
+                lenStr, idStr, matchStr = seqInfo.split(" ", 2)
+                readId = idStr[1:-3]
+                tReads.append(readId.split("|")[0])
+                if matchStr == "*":
+                    repSeq = readId
+        #last cluster
+        if not tReads is None:
+            assert not repSeq is None
+            clusterReads[repSeq] = tReads
+#        otuInf = {}
+#        for otu, readList in clusterReads.items():
+#            for read in readList:
+#                otuInf[read.rsplit("/", 1)[0]] = otu
+        with open(output.info, "wb") as pOut:
+            pickle.dump(clusterReads, pOut)
+
+rule indiCluOverlap:
+    input: ssu="indiCluster/{sample}_SSU_cluInfo.pic", its1="indiCluster/{sample}_ITS1_cluInfo.pic", r58s="indiCluster/{sample}_58S_cluInfo.pic", its2="indiCluster/{sample}_ITS2_cluInfo.pic", lsu="indiCluster/{sample}_LSU_cluInfo.pic"
+    output: nodes="clusterGraph/{sample}_clusterGraphNodes.tsv", edges="clusterGraph/{sample}_clusterGraphEdges.tsv"
+    params: minCluSize=2, minCluOverlap=2
+    run:
+        ssu=pickle.load(open(input.ssu, "rb"))
+        its1=pickle.load(open(input.its1, "rb"))
+        r58s=pickle.load(open(input.r58s, "rb"))
+        its2=pickle.load(open(input.its2, "rb"))
+        lsu=pickle.load(open(input.lsu, "rb"))
+        nodes = {}
+        for markerData in [ssu, its1, r58s, its2, lsu]:
+                for cId, reads in markerData.items():
+                    if len(reads) >= params.minCluSize:
+                        nodes[cId] = reads
+        with open(output.nodes, "w") as out:
+            out.write("cluster\ttype\tsize\n")
+            for cId, reads in nodes.items():
+                try:
+                    out.write("%s\t%s\t%i\n" % (cId, cId.split("|")[2], len(reads)))
+                except IndexError:
+                    print(cId)
+                    
+                    raise
+        edges = []
+        for start, end in [(ssu, its1), (its1, r58s), (r58s, its2), (its2, lsu)]:
+            for startId in start:
+                if not startId in nodes:
+                    continue
+                for endId in end:
+                    if not endId in nodes:
+                        continue
+                    weight = len(set(start[startId]) & set(end[endId]))
+                    if weight >= params.minCluOverlap:
+                        edges.append((startId, endId, weight))
+        with open(output.edges, "w") as out:
+            out.write("start\tend\tweight\n")
+            for e in edges:
+                out.write("%s\t%s\t%i\n" % e)
+
 
 #rule cluster2:
 #    input: "consensus/{sample}_consensus.fasta"

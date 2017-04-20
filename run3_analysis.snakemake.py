@@ -20,28 +20,29 @@ samples = []
 for lib, bcList in config["samples"].items():
     for bc in bcList: 
         samples.append("%s_%s" % (lib, bc))
-
+samples=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"]
 #print(sorted(samples))
 
 rule all:
-    input: expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
-    #"QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
+    input: "readNumbers.pdf"
+    #expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
+    #"QC/multiqc_report.html", , expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
 rule unpack:
-    input: "%(inFolder)s/8_libs_Mar17_3/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
+    input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
     output: dynamic("%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
         "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_1+2; touch %(inFolder)s/Lib{wildcards.cellNr}_1+2/*" % config
 
 rule unpackThird:
-    input: "%(inFolder)s/8_libs_Mar17_3/Ampl.Lib{cellNr}.SC3_barcoded-fastqs.tgz" % config
+    input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC3_barcoded-fastqs.tgz" % config
     output: dynamic("%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
         "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_3; touch %(inFolder)s/Lib{wildcards.cellNr}_3/*" % config
 
 rule concatRawfiles:
-    input: "%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config, "%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config
-    output: "%(inFolder)s/Lib{cellNr}-{barcode}.fastq" % config
+    input: "%(inFolder)s/Lib{cellNr}_1+2/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config, "%(inFolder)s/Lib{cellNr}_3/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config
+    output: "%(inFolder)s/Lib{cellNr}-{barcode,\d+}.fastq" % config
     shell:
         "cat {input} > {output}"
 
@@ -59,19 +60,25 @@ rule multiqc:
 
 rule lengthFilter:
     input: fastq="raw/{sample}.fastq"
-    output: "lenFilter/{sample}_rightLen.fastq", "lenFilter/{sample}_wrongLen.fastq"
+    output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
     log: "logs/{sample}_lenFilter.log"
-    params: maxLen = 6000
+    params: maxLen = 6500, minLen = 3000
     run:
-        toLong = 0
-        with open(output[0], "w") as out, open(output[1], "w") as trash:
-            for read in SeqIO.parse(open(input.fastq), "fastq"):
-                if len(read) <= params.maxLen:
+        nrLong = 0
+        nrShort = 0
+        with open(output.right, "w") as out, open(output.long, "w") as tooLong, open(output.short, "w") as tooShort:
+            for read in SeqIO.parse(open(input[0]), "fastq"):
+                if len(read) <= params.minLen:
+                    tooShort.write(read.format("fastq"))
+                    nrShort += 1
+                elif len(read) <= params.maxLen:
                     out.write(read.format("fastq"))
                 else:
-                    trash.write(read.format("fastq"))
-                    toLong += 1
-        open(log[0], "w").write("%s: %i reads were removed because they were longer than %i\n" % (wildcards.sample, toLong, params.maxLen))
+                    tooLong.write(read.format("fastq"))
+                    nrLong += 1
+        with open(log[0], "w") as logFile:
+            logFile.write("%i reads were removed because they were longer than %i\n" % (nrLong, params.maxLen))
+            logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, params.maxLen))
 
 rule qualityFilter:
     input: fastq="lenFilter/{sample}_rightLen.fastq"
@@ -82,9 +89,11 @@ rule qualityFilter:
         removed = 0
         with open(output[0], "w") as out, open(output[1], "w") as trash:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
-                rId, qual, _ = read.description.split(" ")
-                tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
-                assert float(qual) == round(1-tError,2)
+                try:
+                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
+                except Exception:
+                    print(read.id)
+                    raise
                 if (1-tError) < params.minQual:
                     removed += 1
                     trash.write(read.format("fastq"))
@@ -116,16 +125,11 @@ rule init_filterPrimer:
 
 rule fastq2fasta:
     input: "primers/{sample}_primer.fastq"
-    output: "primers/{sample}_minLen.fasta"
-    log: "logs/{sample}_minLen.log"
-    params: minLen=2000
+    output: "primers/{sample}_primer.fasta"
     run:
         with open(output[0], "w") as out, open(log[0], "w") as logFile:
             for read in SeqIO.parse(open(input[0]), "fastq"):
-                if len(read) < params.minLen:
-                    logFile.write("Removed %s, length %i < %i" % (read.id, len(read), params.minLen))
-                else:
-                    out.write(read.format("fasta"))
+                out.write(read.format("fasta"))
 
 rule readNumbers_raw:
     input: raw=expand("raw/{sample}.fastq", sample=samples)
@@ -147,7 +151,7 @@ rule readNumbers_raw:
                 out.write("raw\t%s\t%i\n" % (sample, i))
 rule readNumbers_maxLen:
     input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=samples)
-    output: "maxLenReadNumbers.tsv"
+    output: "lenReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #max lenght filter
@@ -162,7 +166,7 @@ rule readNumbers_maxLen:
                             break
                         i+=1
                 sample = lenFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("maxLenFilter\t%s\t%i\n" % (sample, i))
+                out.write("lenFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_qual:
     input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=samples)
@@ -202,27 +206,8 @@ rule readNumbers_primer:
                 sample = primerFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("primerFilter\t%s\t%i\n" % (sample, i))
 
-rule readNumbers_minLen:
-    input: minLen=expand("primers/{sample}_minLen.fasta", sample=samples)
-    output: "minLenReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #min length filter
-            for minLenFileName in input.minLen:
-                i=0
-                with open(minLenFileName) as minLenFile:
-                    iter = SeqIO.parse(minLenFile, "fasta")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = minLenFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("minLenFilter\t%s\t%i\n" % (sample, i))
-
 rule catReadNumber:
-    input: "rawReadNumbers.tsv", "maxLenReadNumbers.tsv", "qualReadNumbers.tsv", "primerReadNumbers.tsv", "minLenReadNumbers.tsv"
+    input: "rawReadNumbers.tsv", "lenReadNumbers.tsv", "qualReadNumbers.tsv", "primerReadNumbers.tsv"
     output: "readNumbers.tsv"
     shell: 
         "cat {input} > {output}"
@@ -236,7 +221,7 @@ rule plotReadNumber:
         library(ggplot2)
         d=read.table("{input}")
         colnames(d) = c("stage", "sample", "number")
-        d$stage=factor(d$stage, levels=c("raw", "maxLenFilter", "qualFilter", "primerFilter", "minLenFilter"))
+        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "primerFilter"))
         ggplot(d)+geom_bar(aes(x=sample, y=number, fill=stage), stat="identity", position="dodge") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output}", width=16, height=10)
         """)

@@ -76,14 +76,16 @@ rule lengthFilter:
 rule qualityFilter:
     input: fastq="lenFilter/{sample}_rightLen.fastq"
     output: "qualFilter/{sample}_goodQual.fastq", "qualFilter/{sample}_badQual.fastq"
-    params: minQual=0.99
+    params: minQual=0.996
     log: "logs/{sample}_qualityFilter.log"
     run:
         removed = 0
         with open(output[0], "w") as out, open(output[1], "w") as trash:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
                 rId, qual, _ = read.description.split(" ")
-                if float(qual) < params.minQual:
+                tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
+                assert float(qual) == round(1-tError,2)
+                if (1-tError) < params.minQual:
                     removed += 1
                     trash.write(read.format("fastq"))
                 else:

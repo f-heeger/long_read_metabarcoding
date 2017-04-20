@@ -7,6 +7,8 @@ from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
 
 from snakemake.utils import min_version, R
 
+import networkx as nx
+
 shell.prefix("sleep 10; ") #work around to desl with "too quck" rule execution and slow samba
 
 configfile: "config.json"
@@ -22,7 +24,7 @@ for lib, bcList in config["samples"].items():
 #print(sorted(samples))
 
 rule all:
-    input: expand("taxonomy/{sample}_comb.class.tsv", sample=["Lib4_0018", "Lib3_0075", "Lib3_0034", "Lib7_0075", "Lib7_0034"])
+    input: expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
     #"QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
 rule unpack:
@@ -33,7 +35,7 @@ rule unpack:
 
 rule renameRawfile:
     input: "raw/Lib{cellNr}/{barcode}_Forward--{barcode}_Forward.fastq"
-    output: "raw/Lib{cellNr}_{barcode}.fastq"
+    output: "raw/Lib{cellNr}-{barcode}.fastq"
     shell:
         "mv {input} {output}"
 
@@ -254,7 +256,7 @@ rule cluster:
     threads: 3
     params: mem=16000
     shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.99 -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
+        "%(cd-hit)s -i {input} -o {output.fasta} -gap -2 -g 1 -c 0.99 -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
         
 rule clusterPerSample:
     input: cls="clusters/all_cluster.fasta.clstr", sample="sampleInfo.tsv"
@@ -418,21 +420,21 @@ rule itsx:
     threads: 6
     log: "logs/{sample}_itsx.log"
     shell:
-        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 2> {log}" % config
+        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
 
 rule otuCluster:
     input: "itsx/{sample}.full.fasta"
-    output: fasta="otus/{sample}_otus.fasta", clstr="otus/{sample}_otus.fasta.clstr"
-    log: "logs/{sample}_otuClustering.log"
+    output: fasta="otus/{sample}_{ident}otus.fasta", clstr="otus/{sample}_{ident}otus.fasta.clstr"
+    log: "logs/{sample}_{ident}otuClustering.log"
     threads: 3
     params: mem=16000
     shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.97 -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
+        "%(cd-hit)s -i {input} -o {output.fasta} -gap -2 -g 1 -c 0.{wildcards.ident} -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
 
 rule otuReads:
-    input: clsInfo="otus/{sample}_otus.fasta.clstr"
-    output: size="otus/{sample}_cluster.size.tsv", info="otus/{sample}_otuInfo.pic"
+    input: clsInfo="otus/{sample}_{ident}otus.fasta.clstr"
+    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuInfo.pic"
     run:
         clusterReads={}
         tReads = None
@@ -468,8 +470,8 @@ rule otuReads:
         
 
 rule transferOtus:
-    input: pic="otus/{sample}_otuInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
-    output: "otus/{sample}_otus_{marker}.fasta"
+    input: pic="otus/{sample}_{ident}otuInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
+    output: "otus/{sample}_{ident}otus_{marker}.fasta"
     run:
         read2otu = pickle.load(open(input.pic, "rb"))
         with open(output[0], "w") as out:
@@ -557,18 +559,18 @@ rule creatSilvaIndex:
 
 
 rule alignToUnite:
-    input: clu="otus/{sample}_otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, dbFlag="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config
-    output: "lambda/{sample}.otu_vs_UNITE.m8"
-    log: "logs/{sample}_otu_lambda.log"
+    input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, dbFlag="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config
+    output: "lambda/{sample}.{ident}otu_vs_UNITE.m8"
+    log: "logs/{sample}_{ident}otu_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
 
 rule classifyITS:
-    input: lam="lambda/{sample}.otu_vs_UNITE.m8", clu="otus/{sample}_otus.fasta", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
-    output: "taxonomy/{sample}_otu_ITS.class.tsv"
+    input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", clu="otus/{sample}_{ident}otus.fasta", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_otuClass.log"
+    log: "logs/{sample}_{ident}otuClass.log"
     run:
         taxDict = {}
         for line in open(input.tax):
@@ -626,18 +628,18 @@ rule classifyITS:
             pass
 
 rule alignToSliva:
-    input: clu="otus/{sample}_otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
-    output: "lambda/{sample}.{marker}_vs_SILVA.m8"
-    log: "logs/{sample}_otu{marker}_lambda.log"
+    input: clu="otus/{sample}_{ident}otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
+    output: "lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8"
+    log: "logs/{sample}_{ident}otu{marker}_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
 
 rule classifySilva:
-    input: lam="lambda/{sample}.{marker}_vs_SILVA.m8", clu="otus/{sample}_otus.fasta", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
-    output: "taxonomy/{sample}_otu_{marker}.class.tsv"
+    input: lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", clu="otus/{sample}_{ident}otus.fasta", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_{marker}_otuClass.log"
+    log: "logs/{sample}_{marker}_{ident}otuClass.log"
     run:
         taxDict={}
         for line in open(input.tax):
@@ -696,8 +698,8 @@ rule classifySilva:
 
 
 rule compareCls:
-    input: ssu="taxonomy/{sample}_otu_SSU.class.tsv", its="taxonomy/{sample}_otu_ITS.class.tsv", lsu="taxonomy/{sample}_otu_LSU.class.tsv", read2otu="otus/{sample}_otuInfo.pic"
-    output: "taxonomy/{sample}_comb.class.tsv"
+    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", read2otu="otus/{sample}_{ident}otuInfo.pic"
+    output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
         read2otu = pickle.load(open(input.read2otu, "rb"))
@@ -721,7 +723,7 @@ rule compareCls:
                 otuReads = otu2read["%s/ITS" % itsId]
                 lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
                 ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
-                out.write("%s\t%s\t%s\n" % (ssuTax, itsTax, lsuTax))
+                out.write("%s\t%s\t%s\t%s\n" % (itsId, ssuTax, itsTax, lsuTax))
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],
@@ -777,13 +779,36 @@ def lca(lineageStrings, stringency=1.0,
 
 #####################################################################
 
+rule indiDerep:
+    input: "itsx/{sample}.{marker}.fasta"
+    output: fasta="indiDerep/{sample}_{marker}.derep.fasta", info="indiDerep/{sample}_{marker}.repseq.pic", txt="indiDerep/{sample}_{marker}.uc.txt"
+    log: "logs/{sample}_{marker}_derep.log"
+    run:
+        shell("%(vsearch)s --derep_fulllength {input} --output {output.fasta} --uc {output.txt} --sizeout --log {log} &> /dev/null" % config)
+        repseq = {}
+        for line in open(output.txt):
+            arr = line.strip().split("\t")
+            if arr[0] == "C":
+                pass
+            elif arr[0] == "S":
+                seq = arr[-2]
+                if seq in repseq:
+                    raise ValueError("Starting existing cluster")
+                repseq[seq] = [seq]
+            elif arr[0] == "H":
+                seq, cluster = arr[-2:]
+                repseq[cluster].append(seq)
+            else:
+                raise ValueError("Unknown record type: %s" % arr[0])
+        pickle.dump(repseq, open(output.info, "wb"))
+
 rule indiCluster:
-    input: "itsx/{sample}.{marker}.fasta" #"itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta"
-    output: fasta="indiCluster/{sample}_{marker}_clu.fasta", clstr="indiCluster/{sample}_{marker}_clu.fasta.clstr"
+    input: "indiDerep/{sample}_{marker}.derep.fasta"
+    output: fasta="indiCluster/{sample}_{marker}_clu.fasta", uc="indiCluster/{sample}_{marker}_clu.uc.tsv"
     log: "logs/{sample}_indiClustering_{marker}.log"
     threads: 6
     shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.97 -r 0 -d 0 -T {threads} &> {log}" % config
+        "%(vsearch)s --cluster_size {input} --id 0.97 --sizein --sizeout --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule cp58s:
     input: "itsx/{sample}.5_8S.fasta"
@@ -792,36 +817,30 @@ rule cp58s:
         "cp {input} {output}"
 
 rule indiCluReads:
-    input: clsInfo="indiCluster/{sample}_{marker}_clu.fasta.clstr"
+    input: clsInfo="indiCluster/{sample}_{marker}_clu.uc.tsv", repseq="indiDerep/{sample}_{marker}.repseq.pic"
     output: info="indiCluster/{sample}_{marker}_cluInfo.pic"
     run:
+        repseq=pickle.load(open(input.repseq, "rb"))
         clusterReads={}
         tReads = None
         repSeq = None
         for line in open(input.clsInfo):
-            if line[0] == ">":
-                #new cluster
-                if not tReads is None:
-                    assert not repSeq is None
-                    clusterReads[repSeq] = tReads
-                tReads = []
-                repSeq = None
+            arr = line.strip().split("\t")
+            if arr[0] == "C":
+                pass
+            elif arr[0] == "S":
+                seq = arr[-2]
+                if seq in repseq:
+                    raise ValueError("Starting existing cluster")
+                seqId = seq.split(";", 1)[0]
+                clusterReads[seqId] = [s.split("|", 1)[0] for s in repseq[seqId]]
+            elif arr[0] == "H":
+                seq, cluster = arr[-2:]
+                seqId = seq.split(";", 1)[0]
+                clusterId = cluster.split(";", 1)[0]
+                clusterReads[clusterId].extend([s.split("|", 1)[0] for s in repseq[seqId]])
             else:
-                #add to cluster
-                redNum, seqInfo = line.strip().split("\t")
-                lenStr, idStr, matchStr = seqInfo.split(" ", 2)
-                readId = idStr[1:-3]
-                tReads.append(readId.split("|")[0])
-                if matchStr == "*":
-                    repSeq = readId
-        #last cluster
-        if not tReads is None:
-            assert not repSeq is None
-            clusterReads[repSeq] = tReads
-#        otuInf = {}
-#        for otu, readList in clusterReads.items():
-#            for read in readList:
-#                otuInf[read.rsplit("/", 1)[0]] = otu
+                raise ValueError("Unknown record type: %s" % arr[0])
         with open(output.info, "wb") as pOut:
             pickle.dump(clusterReads, pOut)
 
@@ -843,12 +862,8 @@ rule indiCluOverlap:
         with open(output.nodes, "w") as out:
             out.write("cluster\ttype\tsize\n")
             for cId, reads in nodes.items():
-                try:
-                    out.write("%s\t%s\t%i\n" % (cId, cId.split("|")[2], len(reads)))
-                except IndexError:
-                    print(cId)
+                out.write("%s\t%s\t%i\n" % (cId, cId.split("|")[2], len(reads)))
                     
-                    raise
         edges = []
         for start, end in [(ssu, its1), (its1, r58s), (r58s, its2), (its2, lsu)]:
             for startId in start:
@@ -865,45 +880,94 @@ rule indiCluOverlap:
             for e in edges:
                 out.write("%s\t%s\t%i\n" % e)
 
+rule findComponents:
+    input: edges="clusterGraph/{sample}_clusterGraphEdges.tsv"
+    output: comp="clusterGraph/{sample}_components.txt"
+    run:
+        G=nx.Graph()
+        with open(input.edges) as inStream:
+            _ = next(inStream) # header
+            for line in inStream:
+                start, end, weight = line.strip().split("\t")
+                G.add_edge(start, end)
+            with open(output.comp, "w") as out:
+                for comp in nx.connected_components(G):
+                    out.write("\t".join(comp)+"\n")
 
-#rule cluster2:
-#    input: "consensus/{sample}_consensus.fasta"
-#    output: fasta="clusters2/{sample}_cluster2.fasta", clstr="clusters2/{sample}_cluster2.fasta.clstr"
-#    log: "logs/{sample}_clustering2.log"
-#    threads: 3
-#    shell:
-#        "%(cd-hit)s -i {input} -o {output.fasta} -g 1 -c 0.99 -r 0 -d 0 -T {threads} &> {log}" % config
-#        
-#rule cluster2Sizes:
-#    input: clsInfo="clusters2/{sample}_cluster2.fasta.clstr"
-#    output: "clusters2/{sample}_cluster2.size.tsv"
-#    run:
-#        clusters = []
-#        rep=[]
-#        for line in open(input.clsInfo):
-#            if line[0] == ">":
-#                #new cluster
-#                clusters.append(0)
-#            else:
-#                lenStr, nameStr, infoStr=line.strip().split("\t")[1].split(" ", 2)
-#                name, sizeStr, _ = nameStr[1:].split(";")
-#                size = int(sizeStr.split("=")[1])
-#                if infoStr == "*":
-#                    rep.append(name)
-#                clusters[-1] += size
-#        with open(output[0], "w") as out:
-#            for c, size in enumerate(clusters):
-#                out.write("%s\tCluster %i\t%s\t%i\n" % (wildcards.sample, c, rep[c], size))
+rule indiCluClass:
+    input: ssu="indiCluster/{sample}_SSU_cluInfo.pic", its1="indiCluster/{sample}_ITS1_cluInfo.pic", r58s="indiCluster/{sample}_58S_cluInfo.pic", its2="indiCluster/{sample}_ITS2_cluInfo.pic", lsu="indiCluster/{sample}_LSU_cluInfo.pic", cls="mapping/assignment/{sample}_assignments.tsv", comp="clusterGraph/{sample}_components.txt"
+    output: tab="clusterGraph/{sample}_components_class.tsv", lab="clusterGraph/{sample}_clusterGraphCls.tsv"
+    run:
+        reads = {
+        "SSU": pickle.load(open(input.ssu, "rb")),
+        "ITS1": pickle.load(open(input.its1, "rb")),
+        "5.8S": pickle.load(open(input.r58s, "rb")),
+        "ITS2": pickle.load(open(input.its2, "rb")),
+        "LSU": pickle.load(open(input.lsu, "rb"))
+        }
+        readCls = {}
+        for line in open(input.cls):
+            read, cls = line.strip().split("\t")
+            readCls[read] = cls
+        with open(output.tab, "w") as out, open(output.lab, "w") as labOut:
+            labOut.write("nodeName\tclassification\n")
+            for cNr, line in enumerate(open(input.comp)):
+                comp = line.strip().split("\t")
+                for clu in comp:
+                    sId, _, marker = clu.rsplit("|")
+                    cluCls = {}
+                    for read in reads[marker][clu]:
+                        tCls = readCls[read]
+                        try:
+                            cluCls[tCls] += 1
+                        except KeyError:
+                            cluCls[tCls] = 1
+                    for cls, count in cluCls.items():
+                        out.write("Comp%i\t%s\t%s\t%s\t%i\n" % (cNr, marker, clu, cls, count))
+                    labOut.write("%s\t%s\n" % (clu, "+".join(["%s(%i)" % i for i in cluCls.items()])))
 
-#rule consensus2:
-#    input: clusterTab="clusters2/{sample}_cluster2.fasta.clstr", clusterSeq="clusters2/{sample}_cluster2.fasta", reads="consensus/{sample}_consensus.fasta"
-#    output: consensus="consensus2/{sample}_consensus2.fasta"
-#    log: cons="logs/{sample}_consensus2.log", aln="logs/{sample}_align2.log"
-#    params: minSize=2
-#    threads: 6
-#    run:
-
-
+rule componentAlign:
+    input: comp="clusterGraph/{sample}_components.txt", fasta="itsx/{sample}.{marker}.fasta", info="indiCluster/{sample}_{marker}_cluInfo.pic"
+    output: dynamic("clusterAln/{sample}_compAln_{comp}_{marker}.fasta")
+    log: comp="logs/{sample}_components.log", aln="logs/{sample}_cluAlign.log"
+    threads: 6
+    run:
+        with open(log.comp, "w") as logFile:
+            seqRecs = {}
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+                seqRecs[rec.id.split("|", 1)[0]] = rec
+            readInfo=pickle.load(open(input.info, "rb"))
+            for l,line in enumerate(open(input.comp)):
+                comp = line.strip().split("\t")
+                markers = {}
+                for clu in comp:
+                    try:
+                        markers[clu.rsplit("|", 1)[-1]].append(clu)
+                    except KeyError:
+                        markers[clu.rsplit("|", 1)[-1]] = [clu]
+                
+                baseFileName = "clusterAln/tmp_comp%i_%s" % (l, wildcards.marker)
+                #write all reads in the component to temp file
+                readFilePath = "%s_reads.fasta" % baseFileName
+                alignmentPath="clusterAln/%s_compAln_%i_%s.fasta" % (wildcards.sample, l, wildcards.marker)
+                if wildcards.marker=="58S":
+                    marker="5.8S"
+                else:
+                    marker=wildcards.marker
+                with open(readFilePath, "w") as readFile:
+                    if marker not in markers:
+                        logFile.write("No %s for component %i" % (marker, l))
+                        #create dummy file 
+                        open(alignmentPath, "w")
+                        continue
+                    for c, clu in enumerate(markers[marker]):
+                        for readId in readInfo[clu]:
+                            rec = seqRecs[readId]
+                            rec.id = "%s|%s" % (c, rec.id)
+                            readFile.write(rec.format("fasta"))
+                #run alignment
+                shell("%(mafft)s" % config + " --op 0.5 --ep 0.5 --thread {threads} %s > %s 2> {log.aln}" % (readFilePath, alignmentPath))
+                shell("rm clusterAln/tmp_*")
 
 def fastaConsensus(inFasta, warn=0.75, log=sys.stderr):
     prof = []

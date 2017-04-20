@@ -3,7 +3,7 @@
     "multiqc": "multiqc",
     "cutadapt": "cutadapt",
     "cd-hit": "/home/heeger/bin/cdhit/cd-hit-est",
-    "vsearch": "/home/heeger/bin/vsearch-1.9.7-linux-x86_64/bin/vsearch",
+    "vsearch": "/home/heeger/bin/vsearch-2.4.3-linux-x86_64/bin/vsearch",
     "lambdaFolder": "/home/heeger/bin/lambda-v0.9.3-linux_x86-64/bin",
     "itsx" : "/home/heeger/bin/ITSx_1.0.11/ITSx",
     "dagcon" : "/home/heeger/bin/pbdagcon/src/cpp/pbdagcon",

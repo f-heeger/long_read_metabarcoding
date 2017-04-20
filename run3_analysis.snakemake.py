@@ -28,19 +28,25 @@ rule all:
     #"QC/multiqc_report.html", "readNumbers.pdf", expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
 rule unpack:
-    input: "raw/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz"
-    output: dynamic("raw/Lib{cellNr}/{barcode}_Forward--{barcode}_Forward.fastq")
+    input: "%(inFolder)s/8_libs_Mar17_3/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
+    output: dynamic("%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
-        "mkdir -p raw/Lib{wildcards.cellNr}; tar -xzf {input} -C raw/Lib{wildcards.cellNr}; touch raw/Lib{wildcards.cellNr}/*"
+        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_1+2; touch %(inFolder)s/Lib{wildcards.cellNr}_1+2/*" % config
 
-rule renameRawfile:
-    input: "raw/Lib{cellNr}/{barcode}_Forward--{barcode}_Forward.fastq"
-    output: "raw/Lib{cellNr}-{barcode}.fastq"
+rule unpackThird:
+    input: "%(inFolder)s/8_libs_Mar17_3/Ampl.Lib{cellNr}.SC3_barcoded-fastqs.tgz" % config
+    output: dynamic("%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
-        "mv {input} {output}"
+        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_3; touch %(inFolder)s/Lib{wildcards.cellNr}_3/*" % config
+
+rule concatRawfiles:
+    input: "%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config, "%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config
+    output: "%(inFolder)s/Lib{cellNr}-{barcode}.fastq" % config
+    shell:
+        "cat {input} > {output}"
 
 rule fastqc:
-    input: "raw/{sample}.fastq"
+    input: "%(inFolder)s/{sample}.fastq" % config
     output: "QC/{sample}_fastqc.html"
     threads: 6
     shell: "%(fastqc)s -o QC -t {threads} {input}" % config

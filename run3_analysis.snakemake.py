@@ -9,7 +9,7 @@ from snakemake.utils import min_version, R
 
 import networkx as nx
 
-shell.prefix("sleep 10; ") #work around to desl with "too quck" rule execution and slow samba
+shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution and slow samba
 
 configfile: "config.json"
 
@@ -19,12 +19,12 @@ barcodes=["0009", "0075", "0018", "0095", "0027", "0034", "0056"]
 samples = []
 for lib, bcList in config["samples"].items():
     for bc in bcList: 
-        samples.append("%s_%s" % (lib, bc))
-samples=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"]
+        samples.append("%s-%s" % (lib, bc))
+#samples=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"]
 #print(sorted(samples))
 
 rule all:
-    input: "readNumbers.pdf"
+    input: "readNumbers.pdf" #, "taxonomy/Lib4-0018_97_comb.class.tsv" 
     #expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
     #"QC/multiqc_report.html", , expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
@@ -32,13 +32,13 @@ rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
     output: dynamic("%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
-        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_1+2; touch %(inFolder)s/Lib{wildcards.cellNr}_1+2/*" % config
+        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_1+2; touch %(inFolder)s/Lib{wildcards.cellNr}_1+2/*.fastq" % config
 
 rule unpackThird:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC3_barcoded-fastqs.tgz" % config
     output: dynamic("%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config)
     shell:
-        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_3; touch %(inFolder)s/Lib{wildcards.cellNr}_3/*" % config
+        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_3; touch %(inFolder)s/Lib{wildcards.cellNr}_3/*.fastq" % config
 
 rule concatRawfiles:
     input: "%(inFolder)s/Lib{cellNr}_1+2/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config, "%(inFolder)s/Lib{cellNr}_3/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config
@@ -127,7 +127,7 @@ rule fastq2fasta:
     input: "primers/{sample}_primer.fastq"
     output: "primers/{sample}_primer.fasta"
     run:
-        with open(output[0], "w") as out, open(log[0], "w") as logFile:
+        with open(output[0], "w") as out:
             for read in SeqIO.parse(open(input[0]), "fastq"):
                 out.write(read.format("fasta"))
 
@@ -243,7 +243,7 @@ rule concat:
                         out.write("%s\t%s\n" % (rec.id, sample))
 
 rule cluster:
-    input: "primers/{sample}_minLen.fasta"
+    input: "primers/{sample}_primer.fasta"
     output: fasta="clusters/{sample}_cluster.fasta", clstr="clusters/{sample}_cluster.fasta.clstr"
     log: "logs/{sample}_clustering.log"
     threads: 3
@@ -295,7 +295,7 @@ rule clusterSize:
                 out.write("%s\tCluster %i\t%s\t%i\n" % (wildcards.sample, c, seqs[c], size))
 
 rule consensus:
-    input: clusterTab="clusters/{sample}_cluster.fasta.clstr", clusterSeq="clusters/{sample}_cluster.fasta", reads="primers/{sample}_minLen.fasta"
+    input: clusterTab="clusters/{sample}_cluster.fasta.clstr", clusterSeq="clusters/{sample}_cluster.fasta", reads="primers/{sample}_primer.fasta"
     output: consensus="consensus/{sample}_consensus.fasta", reads="clusters/{sample}_cluster_reads.pic"
     log: aln="logs/{sample}_align.log", cons="logs/{sample}_consensus.log"
     params: minSize=3
@@ -388,7 +388,7 @@ rule removeChimeraNoCons:
         "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 rule nonChimeraReads:
-    input: noChim="chimera/{sample}.nochimera.fasta", reads="primers/{sample}_minLen.fasta", cluster2read="clusters/{sample}_cluster_reads.pic"
+    input: noChim="chimera/{sample}.nochimera.fasta", reads="primers/{sample}_primer.fasta", cluster2read="clusters/{sample}_cluster_reads.pic"
     output: "chimera/{sample}.nochimeraReads.fasta"
     run:
         goodReads = {}

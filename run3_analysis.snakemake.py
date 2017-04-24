@@ -696,6 +696,27 @@ rule classifySilva:
         except:
             pass
 
+rule getCorrectCls:
+    input: otuInfo="otus/Lib4-0018_{ident}otuInfo.pic", cls="mapping/assignment/Lib4-0018_assignments.tsv"
+    output: "taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv"
+    run:
+        readCls = {}
+        for line in open(input.cls):
+            read, cls = line.strip().split("\t")
+            readCls[read] = cls
+        read2otu = pickle.load(open(input.otuInfo, "rb"))
+        otuCls = {}
+        for read, otu in read2otu.items():
+            if otu not in otuCls:
+                otuCls[otu] = {}
+            tCls = readCls[read]
+            try:
+                otuCls[otu][tCls] += 1
+            except KeyError:
+                otuCls[otu][tCls] = 1
+        with open(output[0], "w") as out:
+            for otu, oCls in otuCls.items():
+                out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCls:
     input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", read2otu="otus/{sample}_{ident}otuInfo.pic"
@@ -720,10 +741,30 @@ rule compareCls:
         with open(output[0], "w") as out:
             for line in open(input.its):
                 itsId, itsTax = line.strip().split("\t")
+                
                 otuReads = otu2read["%s/ITS" % itsId]
                 lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
                 ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
                 out.write("%s\t%s\t%s\t%s\n" % (itsId, ssuTax, itsTax, lsuTax))
+
+rule compareCorrectCls:
+    input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", other="taxonomy/Lib4-0018_{ident}_comb.class.tsv", size="otus/Lib4-0018_{ident}otus.size.tsv"
+    output: "taxonomy/Lib4-0018_{ident}_combToCorr.class.tsv"
+    run:
+        otuSize = {}
+        for line in open(input.size):
+            oId, size = line.strip().split("\t")
+            otuSize[oId] = int(size)
+        corrCls = {}
+        for line in open(input.correct):
+            otuId, cls = line.strip().split("\t")
+            corrCls[otuId] = cls
+        with open(output[0], "w") as out:
+            for line in open(input.other):
+                itsId, ssuTax, itsTax, lsuTax = line.strip().split("\t")
+                corr = corrCls["%s/ITS" % itsId]
+                size = otuSize["%s/ITS" % itsId]
+                out.write("%s\t%i\t%s\t%s\t%s\t%s\n" % (itsId, size, corr, ssuTax, itsTax, lsuTax))
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],

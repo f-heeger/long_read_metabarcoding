@@ -17,7 +17,7 @@ rule all:
     input: "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", expand("mock/clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]),
 
 rule removeChimera:
-    input: seqs="primers/{sample}_minLen.fasta", ref="isolateSeqs.fasta"
+    input: seqs="primers/{sample}_primer.fasta", ref="isolateSeqs.fasta"
     output: fasta="mock/refChimera/{sample}.nochimera.fasta", tsv="mock/refChimera/{sample}.chimeraReport.tsv"
     log: "mock/logs/{sample}_refChimera.log"
     threads: 6

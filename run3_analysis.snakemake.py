@@ -24,7 +24,7 @@ for lib, bcList in config["samples"].items():
 #print(sorted(samples))
 
 rule all:
-    input: "readNumbers.pdf" #, "taxonomy/Lib4-0018_97_comb.class.tsv" 
+    input: "readNumbers.pdf", expand("primers/{sample}_primer.fasta", sample=samples) #, "taxonomy/Lib4-0018_97_comb.class.tsv" 
     #expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
     #"QC/multiqc_report.html", , expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
@@ -346,7 +346,7 @@ rule consensus:
                 consLog.write("======== %s\n" % clusterRec.id)
                 cons = fastaConsensus(open(alignmentPath), log=consLog)
                 out.write(">%s;size=%i;\n%s\n" % (clusterRec.id, size, cons))
-#        shell("rm consensus/tmp_*")
+#        shell("rm consensus/tmp_%s_*" % (wildcards.sample))
 
 rule prepChimeraRemoval:
     input: cls="clusters/{sample}_cluster.fasta", clsTab="clusters/{sample}_cluster.fasta.clstr"

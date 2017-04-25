@@ -40,8 +40,6 @@ samples = {"Lib4-0018": "mock",
 
 ref = ["LSU", "SSU", "ITS"]
 
-rule all:
-    input: "mapping/readPerSampleBarplot.pdf"
 
 rule mapping:
     input: reads="primers/{sample}_primer.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
@@ -88,7 +86,7 @@ rule getCls:
                         out.write("\t%s\t%s\t%s\n" % entry)
                 
                 
-rule compareCls:
+rule compareMappingCls:
     input: reads="primers/{sample}_primer.fasta", its="mapping/matches/match_{sample}_ITS.tsv", ssu="mapping/matches/match_{sample}_SSU.tsv", lsu="mapping/matches/match_{sample}_LSU.tsv"
     output: "mapping/{sample}_cls.tsv"
     run:

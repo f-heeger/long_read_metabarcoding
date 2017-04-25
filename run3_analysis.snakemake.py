@@ -28,6 +28,8 @@ rule all:
     #expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
     #"QC/multiqc_report.html", , expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
 
+include: "mapping.snakemake.py"
+
 rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
     output: dynamic("%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config)

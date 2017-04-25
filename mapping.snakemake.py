@@ -44,7 +44,7 @@ rule all:
     input: "mapping/readPerSampleBarplot.pdf"
 
 rule mapping:
-    input: reads="primers/{sample}_minLen.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
+    input: reads="primers/{sample}_primer.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
     output: m5="mapping/mapping/{sample}_vs_{ref}.m5"
     threads: 3
     shell: 
@@ -89,7 +89,7 @@ rule getCls:
                 
                 
 rule compareCls:
-    input: reads="primers/{sample}_minLen.fasta", its="mapping/matches/match_{sample}_ITS.tsv", ssu="mapping/matches/match_{sample}_SSU.tsv", lsu="mapping/matches/match_{sample}_LSU.tsv"
+    input: reads="primers/{sample}_primer.fasta", its="mapping/matches/match_{sample}_ITS.tsv", ssu="mapping/matches/match_{sample}_SSU.tsv", lsu="mapping/matches/match_{sample}_LSU.tsv"
     output: "mapping/{sample}_cls.tsv"
     run:
         its = {}
@@ -163,7 +163,7 @@ rule plot:
         """)
 
 rule seqByCls:
-    input: reads="primers/{sample}_minLen.fasta", cls="mapping/combinedCls.tsv"
+    input: reads="primers/{sample}_primer.fasta", cls="mapping/combinedCls.tsv"
     output: dynamic("mapping/byCls/{sample}-{cls}.fasta")
     run:
         cls = {}
@@ -283,7 +283,7 @@ rule compareCluCls:
         
 
 rule removeChimeraRef:
-    input: seqs="primers/{sample}_minLen.fasta", ref="isolateSeqs.fasta"
+    input: seqs="primers/{sample}_primer.fasta", ref="isolateSeqs.fasta"
     output: fasta="chimeraRef/{sample}.nochimera.fasta", tsv="chimeraRef/{sample}.chimeraReport.tsv"
     log: "logs/{sample}_refChimera.log"
     shell:

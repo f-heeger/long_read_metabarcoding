@@ -10,7 +10,7 @@
     "blasr": "/home/heeger/bin/blasr/blasr",
     "bbmpa": "/home/heeger/bin/bbmap/bbmap.sh",
     "mafft": "mafft",
-    "dbFolder": "dbs",
+    "dbFolder": "../PacBioMetabarcoding3/dbs",
     "uniteVersion": "20.11.2016",
     "silvaVersion": "128",
     "fwd_primer" : "CAGTAGTCATATGCTTGTC",

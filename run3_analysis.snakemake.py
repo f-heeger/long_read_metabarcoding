@@ -714,10 +714,14 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCls:
-    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", read2otu="otus/{sample}_{ident}otuInfo.pic"
+    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", read2otu="otus/{sample}_{ident}otuInfo.pic", size="otus/Lib4-0018_{ident}otus.size.tsv"
     output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
+        otuSize = {}
+        for line in open(input.size):
+            oId, size = line.strip().split("\t")
+            otuSize[oId] = int(size)
         read2otu = pickle.load(open(input.read2otu, "rb"))
         otu2read = {}
         for read, otu in read2otu.items():
@@ -740,7 +744,8 @@ rule compareCls:
                 otuReads = otu2read["%s/ITS" % itsId]
                 lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
                 ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
-                out.write("%s\t%s\t%s\t%s\n" % (itsId, ssuTax, itsTax, lsuTax))
+                size = otuSize["%s/ITS" % itsId]
+                out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule compareCorrectCls:
     input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", other="taxonomy/Lib4-0018_{ident}_comb.class.tsv", size="otus/Lib4-0018_{ident}otus.size.tsv"

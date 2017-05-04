@@ -84,18 +84,19 @@ rule lengthFilter:
 
 rule qualityFilter:
     input: fastq="lenFilter/{sample}_rightLen.fastq"
-    output: "qualFilter/{sample}_goodQual.fastq", "qualFilter/{sample}_badQual.fastq"
+    output: good="qualFilter/{sample}_goodQual.fastq", bad="qualFilter/{sample}_badQual.fastq", info="qualFilter/{sample}_qualInfo.tsv"
     params: minQual=0.996
     log: "logs/{sample}_qualityFilter.log"
     run:
         removed = 0
-        with open(output[0], "w") as out, open(output[1], "w") as trash:
+        with open(output.good, "w") as out, open(output.bad, "w") as trash, open(output.info, "w") as info:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
                 try:
                     tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
                 except Exception:
                     print(read.id)
                     raise
+                info.write("%s\t%f\n" % (read.id, 1-tError))
                 if (1-tError) < params.minQual:
                     removed += 1
                     trash.write(read.format("fastq"))
@@ -103,8 +104,28 @@ rule qualityFilter:
                     out.write(read.format("fastq"))
         open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, params.minQual))
 
-rule init_filterPrimer:
-    input: "qualFilter/{sample}_goodQual.fastq"
+rule windowQualFilter:
+    input: fastq="qualFilter/{sample}_goodQual.fastq"
+    output: good="windowQualFilter/{sample}_goodQual.fastq"
+    params: winSize=8, minQual=0.9
+    log: "logs/{sample}_winQualityFilter.log"
+    run:
+        removed = 0
+        with open(output.good, "w") as out:
+            for read in SeqIO.parse(open(input.fastq), "fastq"):
+                tRemoved=False
+                for i in range(len(read)-params.winSize):
+                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+params.winSize] ]) / params.winSize
+                    if (1-tError) < params.minQual:
+                        removed += 1
+                        tRemoved = True
+                        break
+                if not tRemoved:
+                    out.write(read.format("fastq"))
+            open(log[0], "w").write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
+
+rule filterPrimer:
+    input: "windowQualFilter/{sample}_goodQual.fastq"
     output: fastq="primers/{sample}_primer.fastq"
     log: "logs/{sample}_primer.log"
     threads: 3
@@ -189,6 +210,25 @@ rule readNumbers_qual:
                 sample = qualFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
                 out.write("qualFilter\t%s\t%i\n" % (sample, i))
 
+rule readNumbers_winQual:
+    input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=samples)
+    output: "winQualReadNumbers.tsv"
+    run:
+        with open(output[0], "w") as out:
+            #quality filter
+            for qualFileName in input.qual:
+                i=0
+                with open(qualFileName) as qualFile:
+                    iter = SeqIO.parse(qualFile, "fastq")
+                    while True:
+                        try:
+                            next(iter)
+                        except StopIteration:
+                            break
+                        i+=1
+                sample = qualFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
+                out.write("winQualFilter\t%s\t%i\n" % (sample, i))
+
 rule readNumbers_primer:
     input: primer=expand("primers/{sample}_primer.fastq", sample=samples)
     output: "primerReadNumbers.tsv"
@@ -209,7 +249,7 @@ rule readNumbers_primer:
                 out.write("primerFilter\t%s\t%i\n" % (sample, i))
 
 rule catReadNumber:
-    input: "rawReadNumbers.tsv", "lenReadNumbers.tsv", "qualReadNumbers.tsv", "primerReadNumbers.tsv"
+    input: "rawReadNumbers.tsv", "lenReadNumbers.tsv", "qualReadNumbers.tsv", "winQualReadNumbers.tsv", "primerReadNumbers.tsv"
     output: "readNumbers.tsv"
     shell: 
         "cat {input} > {output}"
@@ -223,7 +263,7 @@ rule plotReadNumber:
         library(ggplot2)
         d=read.table("{input}")
         colnames(d) = c("stage", "sample", "number")
-        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "primerFilter"))
+        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter" "primerFilter"))
         ggplot(d)+geom_bar(aes(x=sample, y=number, fill=stage), stat="identity", position="dodge") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output}", width=16, height=10)
         """)

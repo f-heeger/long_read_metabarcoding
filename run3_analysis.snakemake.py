@@ -11,24 +11,19 @@ import networkx as nx
 
 shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution and slow samba
 
+include: "mapping.snakemake.py"
+
 configfile: "config.json"
-
-barcodes=["0009", "0075", "0018", "0095", "0027", "0034", "0056"]
-
 
 samples = []
 for lib, bcList in config["samples"].items():
     for bc in bcList: 
         samples.append("%s-%s" % (lib, bc))
-#samples=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"]
 #print(sorted(samples))
 
 rule all:
-    input: "readNumbers.pdf", expand("primers/{sample}_primer.fasta", sample=samples) #, "taxonomy/Lib4-0018_97_comb.class.tsv" 
-    #expand("clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]), expand("taxonomy/Lib4-0018_{ident}_comb.class.tsv", ident=[90,93,94,95,96,97,98]) #, sample=["Lib4-0018", "Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"])
-    #"QC/multiqc_report.html", , expand("taxonomy/{sample}.clu.class.tsv", sample=["Lib%i_0075" % i for i in range(1,9)]+["Lib%i_0034" % i for i in [1,2,3,5,6,7,8]]), expand("clusters2/{sample}_cluster2.size.tsv", sample=samples), #"clusters/all_cluster_persample.tsv"
-
-include: "mapping.snakemake.py"
+#    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
+    input: expand("otus/{sample}_97otus_{marker}.fasta", sample=samples, marker=["SSU", "LSU"])
 
 rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
@@ -156,7 +151,7 @@ rule fastq2fasta:
 
 rule readNumbers_raw:
     input: raw=expand("raw/{sample}.fastq", sample=samples)
-    output: "rawReadNumbers.tsv"
+    output: "readNumbers/rawReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #raw
@@ -174,7 +169,7 @@ rule readNumbers_raw:
                 out.write("raw\t%s\t%i\n" % (sample, i))
 rule readNumbers_maxLen:
     input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=samples)
-    output: "lenReadNumbers.tsv"
+    output: "readNumbers/lenReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #max lenght filter
@@ -193,7 +188,7 @@ rule readNumbers_maxLen:
 
 rule readNumbers_qual:
     input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=samples)
-    output: "qualReadNumbers.tsv"
+    output: "readNumbers/qualReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #quality filter
@@ -212,7 +207,7 @@ rule readNumbers_qual:
 
 rule readNumbers_winQual:
     input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=samples)
-    output: "winQualReadNumbers.tsv"
+    output: "readNumbers/winQualReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #quality filter
@@ -231,7 +226,7 @@ rule readNumbers_winQual:
 
 rule readNumbers_primer:
     input: primer=expand("primers/{sample}_primer.fastq", sample=samples)
-    output: "primerReadNumbers.tsv"
+    output: "readNumbers/primerReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
             #primer filter
@@ -249,21 +244,21 @@ rule readNumbers_primer:
                 out.write("primerFilter\t%s\t%i\n" % (sample, i))
 
 rule catReadNumber:
-    input: "rawReadNumbers.tsv", "lenReadNumbers.tsv", "qualReadNumbers.tsv", "winQualReadNumbers.tsv", "primerReadNumbers.tsv"
-    output: "readNumbers.tsv"
+    input: "readNumbers/rawReadNumbers.tsv", "readNumbers/lenReadNumbers.tsv", "readNumbers/qualReadNumbers.tsv", "readNumbers/winQualReadNumbers.tsv", "readNumbers/primerReadNumbers.tsv"
+    output: "readNumbers/readNumbers.tsv"
     shell: 
         "cat {input} > {output}"
         
 
 rule plotReadNumber:
-    input: "readNumbers.tsv"
+    input: "readNumbers/readNumbers.tsv"
     output: "readNumbers.pdf"
     run:
         R("""
         library(ggplot2)
         d=read.table("{input}")
         colnames(d) = c("stage", "sample", "number")
-        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter" "primerFilter"))
+        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
         ggplot(d)+geom_bar(aes(x=sample, y=number, fill=stage), stat="identity", position="dodge") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output}", width=16, height=10)
         """)
@@ -284,136 +279,60 @@ rule concat:
                         sample = inFile.split("/")[-1].rsplit("_",1)[0]
                         out.write("%s\t%s\n" % (rec.id, sample))
 
-rule cluster:
-    input: "primers/{sample}_primer.fasta"
-    output: fasta="clusters/{sample}_cluster.fasta", clstr="clusters/{sample}_cluster.fasta.clstr"
-    log: "logs/{sample}_clustering.log"
-    threads: 3
-    params: mem=16000
-    shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -gap -2 -g 1 -c 0.99 -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
-        
-rule clusterPerSample:
-    input: cls="clusters/all_cluster.fasta.clstr", sample="sampleInfo.tsv"
-    output: "clusters/all_cluster_persample.tsv"
+rule prepPrecluster:
+    input: fasta="primers/{sample}_primer.fasta", qual="qualFilter/{sample}_qualInfo.tsv"
+    output: "preclusters/{sample}_cluInput.fasta"
     run:
-        read2sample = {}
-        for line in open(input.sample):
-            read, sample = line.strip().split("\t")
-            read2sample[read] = sample
-        
-        clusters = []
-        for line in open(input.cls):
-            if line[0] == ">":
-                #new cluster
-                clusters.append({})
+        qual = {}
+        for line in open(input.qual):
+            rId, tQual = line.strip().split("\t")
+            qual[rId] = tQual
+        readList = []
+        for read in SeqIO.parse(open(input.fasta), "fasta"):
+            if read.id.endswith("rc"):
+                readId = read.id.rsplit("/", 1)[0]
             else:
-                read = line.split("\t")[1].split(" ")[1][1:].strip(".")
-                sample = read2sample[read]
-                try:
-                    clusters[-1][sample].append(read)
-                except KeyError:
-                    clusters[-1][sample] = [read]
+                readId = read.id
+            readList.append((read, qual[readId]))
         with open(output[0], "w") as out:
-            for c, data in enumerate(clusters):
-                for sample, seqs in data.items():
-                    for read in seqs:
-                        out.write("%s\t%s\tCluster %i\n" % (read, sample, c))
+            for read, qual in sorted(readList, key=lambda x: x[1], reverse=True):
+                read.description=str(qual)
+                out.write(read.format("fasta"))
 
-rule clusterSize:
-    input: clsInfo="clusters/{sample}_cluster.fasta.clstr", clsFasta="clusters/{sample}_cluster.fasta"
-    output: "clusters/{sample}_cluster.size.tsv"
-    run:
-        seqs = [r.id for r in SeqIO.parse(open(input.clsFasta), "fasta")]
-        clusters = []
-        for line in open(input.clsInfo):
-            if line[0] == ">":
-                #new cluster
-                clusters.append(0)
-            else:
-                clusters[-1] += 1
-        with open(output[0], "w") as out:
-            for c, size in enumerate(clusters):
-                out.write("%s\tCluster %i\t%s\t%i\n" % (wildcards.sample, c, seqs[c], size))
-
-rule consensus:
-    input: clusterTab="clusters/{sample}_cluster.fasta.clstr", clusterSeq="clusters/{sample}_cluster.fasta", reads="primers/{sample}_primer.fasta"
-    output: consensus="consensus/{sample}_consensus.fasta", reads="clusters/{sample}_cluster_reads.pic"
-    log: aln="logs/{sample}_align.log", cons="logs/{sample}_consensus.log"
-    params: minSize=3
+rule preCluster:
+    input: "preclusters/{sample}_cluInput.fasta"
+    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
+    log: "logs/{sample}_pre-cluster.log"
     threads: 6
-    run:
-        minSize = params.minSize
-        clusterReads = {}
-        tReads = None
-        repSeq = None
-        for line in open(input.clusterTab):
-            if line[0] == ">":
-                #new cluster
-                if not tReads is None:
-                    assert not repSeq is None
-                    clusterReads[repSeq] = tReads
-                tReads = []
-                repSeq = None
-            else:
-                #add to cluster
-                redNum, seqInfo = line.strip().split("\t")
-                lenStr, idStr, matchStr = seqInfo.split(" ", 2)
-                readId = idStr[1:-3]
-                tReads.append(readId)
-                if matchStr == "*":
-                    repSeq = readId
-        #last cluster
-        if not tReads is None:
-            assert not repSeq is None
-            clusterReads[repSeq] = tReads
-        with open(output.reads, "wb") as pOut:
-            pickle.dump(clusterReads, pOut)
-        readRecs = {r.id: r for r in SeqIO.parse(open(input.reads), "fasta")}
-        with open(output.consensus, "w") as out, open(log.cons, "w") as consLog:
-            for clusterRec in SeqIO.parse(open(input.clusterSeq), "fasta"):
-                size = len(clusterReads[clusterRec.id])
-                if size < minSize:
-                    continue
-                baseFileName = "consensus/tmp_%s_%s" % (wildcards.sample, clusterRec.id.replace("/","_"))
-                #write all reads in the cluster to temp file
-                readFilePath = "%s_reads.fasta" % baseFileName
-                with open(readFilePath, "w") as readFile:
-                    for readId in clusterReads[clusterRec.id]:
-                        readFile.write(readRecs[readId].format("fasta"))
-                alignmentPath="%s_align.fasta" % baseFileName
-                #run alignment
-                shell("%(mafft)s" % config + " --ep 1 --thread {threads} %s > %s 2> {log.aln}" % (readFilePath, alignmentPath))
-                #consensus
-                consLog.write("======== %s\n" % clusterRec.id)
-                cons = fastaConsensus(open(alignmentPath), log=consLog)
-                out.write(">%s;size=%i;\n%s\n" % (clusterRec.id, size, cons))
-#        shell("rm consensus/tmp_%s_*" % (wildcards.sample))
+    shell:
+        "%(vsearch)s --usersort --cluster_smallmem {input} --relabel precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
-rule prepChimeraRemoval:
-    input: cls="clusters/{sample}_cluster.fasta", clsTab="clusters/{sample}_cluster.fasta.clstr"
-    output: "clusters/{sample}_cluster_size.fasta"
+rule preclusterSize:
+    input: clsInfo="preclusters/{sample}.uc.txt"
+    output: "preclusters/{sample}_cluster.size.tsv"
     run:
-        clusterSize = []
-        rep=[]
-        for line in open(input.clsTab):
-            if line[0] == ">":
-                #new cluster
-                clusterSize.append(0)
-            else:
-                lenStr, nameStr, infoStr=line.strip().split("\t")[1].split(" ", 2)
-                name = nameStr[1:-3]
-                if infoStr == "*":
-                    rep.append(name)
-                clusterSize[-1] += 1
-        sizeDict = dict(zip(rep, clusterSize))
         with open(output[0], "w") as out:
-            for r, rec in enumerate(SeqIO.parse(open(input.cls), "fasta")):
-                if sizeDict[rec.id] <2:
+            for line in open(input[0]):
+                if line[0] != "C":
                     continue
-                rec.id = "%s;size=%i;" % (rec.id, sizeDict[rec.id])
-                rec.description = ""
-                out.write(rec.format("fasta"))
+                rType, cNr, size, _ = line.split("\t", 3)
+                out.write("precluster%i\t%s\n" % (int(cNr)+1, size))
+
+rule preClusterReads:
+    input: clsInfo="preclusters/{sample}.uc.txt"
+    output: info="preclusters/{sample}_cluInfo.tsv"
+    run:
+        with open(output.info, "w") as out:
+            for line in open(input.clsInfo):
+                if line[0] == "C":
+                    pass
+                elif line[0] in "SH":
+                    arr = line.strip().split("\t")
+                    seq = arr[-2]
+                    cluNr = int(arr[1])
+                    out.write("precluster%i\t%s\n" % (cluNr+1, seq))
+                else:
+                    raise ValueError("Unknown record type: %s" % arr[0])
 
 rule removeChimera:
     input: seqs="consensus/{sample}_consensus.fasta"
@@ -422,35 +341,8 @@ rule removeChimera:
     shell:
         "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
-rule removeChimeraNoCons:
-    input: seqs="clusters/{sample}_cluster_size.fasta"
-    output: fasta="chimeraNoCons/{sample}.nochimera.fasta", tsv="chimeraNoCons/{sample}.chimeraReport.tsv"
-    log: "logs/{sample}_chimeraNoCons.log"
-    shell:
-        "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
-
-rule nonChimeraReads:
-    input: noChim="chimera/{sample}.nochimera.fasta", reads="primers/{sample}_primer.fasta", cluster2read="clusters/{sample}_cluster_reads.pic"
-    output: "chimera/{sample}.nochimeraReads.fasta"
-    run:
-        goodReads = {}
-        with open(input.cluster2read, "rb") as pIn:
-            clu2read = pickle.load(pIn)
-        for rec in SeqIO.parse(open(input.noChim), "fasta"):
-            try:
-                readName = rec.id.split(";")[0]
-                for readId in clu2read[readName]:
-                    goodReads[readId] = None
-            except KeyError:
-                pass
-        with open(output[0], "w") as out:
-            for readRec in SeqIO.parse(input.reads, "fasta"):
-                if readRec.id.split(";")[0] in goodReads:
-                    out.write(readRec.format("fasta"))
-
 rule itsx:
-    input: "chimera/{sample}.nochimeraReads.fasta"
-#    input: "chimera/{sample}.nochimera.fasta"
+    input: "chimera/{sample}.nochimera.fasta"
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
     log: "logs/{sample}_itsx.log"
@@ -460,59 +352,68 @@ rule itsx:
 
 rule otuCluster:
     input: "itsx/{sample}.full.fasta"
-    output: fasta="otus/{sample}_{ident}otus.fasta", clstr="otus/{sample}_{ident}otus.fasta.clstr"
+    output: fasta="otus/{sample}_{ident}otus.fasta", uc="otus/{sample}_{ident}otus.uc.tsv"
     log: "logs/{sample}_{ident}otuClustering.log"
     threads: 3
-    params: mem=16000
     shell:
-        "%(cd-hit)s -i {input} -o {output.fasta} -gap -2 -g 1 -c 0.{wildcards.ident} -r 0 -d 0 -M {params.mem} -T {threads} &> {log}" % config
+        "%(vsearch)s --cluster_size {input} --relabel otu --sizein --sizeout --iddef 0 --id 0.{wildcards.ident} --minsl 0.9 --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule otuReads:
-    input: clsInfo="otus/{sample}_{ident}otus.fasta.clstr"
-    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuInfo.pic"
+    input: info="otus/{sample}_{ident}otus.uc.tsv", preInfo="preclusters/{sample}_cluInfo.tsv"
+    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otuPreClusterInfo.pic"
     run:
-        clusterReads={}
-        tReads = None
-        repSeq = None
-        for line in open(input.clsInfo):
-            if line[0] == ">":
-                #new cluster
-                if not tReads is None:
-                    assert not repSeq is None
-                    clusterReads[repSeq] = tReads
-                tReads = []
-                repSeq = None
+        preClusterReads={}
+        for line in open(input.preInfo):
+            clu, seq = line.strip().split("\t")
+            try:
+                preClusterReads[clu].append(seq)
+            except KeyError:
+                preClusterReads[clu] = [seq]
+        clusterReads = {}
+        otuPreClusters = {}
+        for line in open(input.info):
+            if line[0] == "C":
+                pass
+            elif line[0] in "SH":
+                arr = line.strip().split("\t")
+                seq = arr[-2]
+                seqId = seq.split("=", 1)[1].split(";", 1)[0]
+                otu = "otu%i" % (int(arr[1])+1)
+                try:
+                    otuPreClusters[otu].append(seq)
+                except KeyError:
+                    otuPreClusters[otu] = [seq]
+                for read in preClusterReads[seqId]:
+                    try:
+                        clusterReads[otu].append(read)
+                    except KeyError:
+                        clusterReads[otu] = [read]
             else:
-                #add to cluster
-                redNum, seqInfo = line.strip().split("\t")
-                lenStr, idStr, matchStr = seqInfo.split(" ", 2)
-                readId = "%s/ITS" % idStr[1:-3].split("|")[0]
-                tReads.append(readId)
-                if matchStr == "*":
-                    repSeq = readId
-        #last cluster
-        if not tReads is None:
-            assert not repSeq is None
-            clusterReads[repSeq] = tReads
+                raise ValueError("Unknown record type: %s" % arr[0])
         otuInf = {}
         with open(output.size, "w") as sOut:
             for otu, readList in clusterReads.items():
                 for read in readList:
-                    otuInf[read.rsplit("/", 1)[0]] = otu
+                    otuInf[read] = otu
                 sOut.write("%s\t%i\n" % (otu, len(readList)))
         with open(output.info, "wb") as pOut:
             pickle.dump(otuInf, pOut)
-        
+        with open(output.preInfo, "wb") as eOut:
+            pickle.dump(otuPreClusters, eOut)
 
 rule transferOtus:
-    input: pic="otus/{sample}_{ident}otuInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
+    input: info="otus/{sample}_{ident}otuPreClusterInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
     output: "otus/{sample}_{ident}otus_{marker}.fasta"
     run:
-        read2otu = pickle.load(open(input.pic, "rb"))
+        otu2precluster = pickle.load(open(input.info, "rb"))
+        precluster2otu = {}
+        for otu, pClusterList in otu2precluster.items():
+            for pCluster in pClusterList:
+                precluster2otu[pCluster] = otu
         with open(output[0], "w") as out:
             for rec in SeqIO.parse(open(input.fasta), "fasta"):
-                readId = rec.id.split("|")[0]
-                if readId in read2otu:
+                readId = rec.id.rsplit("|", 1)[0]
+                if readId in precluster2otu:
                     rec.id = "%s/%s" % (readId, wildcards.marker)
                     out.write(rec.format("fasta"))
 
@@ -599,19 +500,20 @@ rule alignToUnite:
     log: "logs/{sample}_{ident}otu_lambda.log"
     threads: 3
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads}  &> {log}" % config
 
 rule classifyITS:
     input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", clu="otus/{sample}_{ident}otus.fasta", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_{ident}otuClass.log"
+    log: "logs/{sample}_{ident}otuClass.log", "logs/{sample}_{ident}otu_itsTax.log"
     run:
         taxDict = {}
         for line in open(input.tax):
             sh, tax = line.strip().split("\t")
             taxDict[sh] = tax
         logOut = open(log[0], "w")
+        logTax = open(log[1], "w")
         classifi = {}
         seqLength = {}
         seqNr = 0
@@ -655,14 +557,21 @@ rule classifyITS:
                     cutoff = 0
                     while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
                         cutoff += 1
-                    lineage = lca([hit[0] for hit in sortedHits[:cutoff]], params.stringency)
+                    goodHits = [hit[0] for hit in sortedHits[:cutoff]]
+                    for h in goodHits:
+                        logTax.write("%s\t%s\n" % (key, h))
+                    lineage = lca(goodHits, params.stringency)
                     out.write("%s\t%s\n" % (key, lineage))
         try:
             logOut.close()
         except:
             pass
+        try:
+            logTax.close()
+        except:
+            pass
 
-rule alignToSliva:
+rule alignToSilva:
     input: clu="otus/{sample}_{ident}otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
     output: "lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8"
     log: "logs/{sample}_{ident}otu{marker}_lambda.log"
@@ -732,7 +641,7 @@ rule classifySilva:
             pass
 
 rule getCorrectCls:
-    input: otuInfo="otus/Lib4-0018_{ident}otuInfo.pic", cls="mapping/assignment/Lib4-0018_assignments.tsv"
+    input: otuInfo="otus/Lib4-0018_{ident}otuReadInfo.pic", cls="mapping/assignment/Lib4-0018_assignments.tsv"
     output: "taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv"
     run:
         readCls = {}
@@ -754,7 +663,7 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCls:
-    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", read2otu="otus/{sample}_{ident}otuInfo.pic", size="otus/Lib4-0018_{ident}otus.size.tsv"
+    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", otu2preClu="otus/{sample}_{ident}otuPreClusterInfo.pic", size="otus/{sample}_{ident}otus.size.tsv"
     output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
@@ -762,13 +671,7 @@ rule compareCls:
         for line in open(input.size):
             oId, size = line.strip().split("\t")
             otuSize[oId] = int(size)
-        read2otu = pickle.load(open(input.read2otu, "rb"))
-        otu2read = {}
-        for read, otu in read2otu.items():
-            try:
-                otu2read[otu].append(read)
-            except KeyError:
-                otu2read[otu] = [read]
+        otu2preClu = pickle.load(open(input.otu2preClu, "rb"))
         ssu = {}
         for line in open(input.ssu):
             ssuId, ssuTax = line.strip().split("\t")
@@ -779,32 +682,32 @@ rule compareCls:
             lsu[lsuId] = lsuTax
         with open(output[0], "w") as out:
             for line in open(input.its):
-                itsId, itsTax = line.strip().split("\t")
-                
-                otuReads = otu2read["%s/ITS" % itsId]
+                itsName, itsTax = line.strip().split("\t")
+                itsId, itsSizeStr = itsName.strip(";").split(";")
+                otuReads = otu2preClu["%s" % itsId]
                 lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
                 ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
-                size = otuSize["%s/ITS" % itsId]
+                size = otuSize["%s" % itsId]
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule compareCorrectCls:
     input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", other="taxonomy/Lib4-0018_{ident}_comb.class.tsv", size="otus/Lib4-0018_{ident}otus.size.tsv"
     output: "taxonomy/Lib4-0018_{ident}_combToCorr.class.tsv"
     run:
-        otuSize = {}
-        for line in open(input.size):
-            oId, size = line.strip().split("\t")
-            otuSize[oId] = int(size)
+#        otuSize = {}
+#        for line in open(input.size):
+#            oId, size = line.strip().split("\t")
+#            otuSize[oId] = int(size)
         corrCls = {}
         for line in open(input.correct):
             otuId, cls = line.strip().split("\t")
             corrCls[otuId] = cls
         with open(output[0], "w") as out:
             for line in open(input.other):
-                itsId, ssuTax, itsTax, lsuTax = line.strip().split("\t")
-                corr = corrCls["%s/ITS" % itsId]
-                size = otuSize["%s/ITS" % itsId]
-                out.write("%s\t%i\t%s\t%s\t%s\t%s\n" % (itsId, size, corr, ssuTax, itsTax, lsuTax))
+                itsId, size, ssuTax, itsTax, lsuTax = line.strip().split("\t")
+                corr = corrCls[itsId]
+#                size = otuSize["%s/ITS" % itsId]
+                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (itsId, size, corr, ssuTax, itsTax, lsuTax))
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],

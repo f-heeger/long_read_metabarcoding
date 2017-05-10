@@ -23,7 +23,7 @@ for lib, bcList in config["samples"].items():
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: expand("otus/{sample}_97otus_{marker}.fasta", sample=samples, marker=["SSU", "LSU"])
+    input: expand("taxonomy/{sample}_97_comb.class.tsv", sample=samples)
 
 rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
@@ -500,10 +500,10 @@ rule alignToUnite:
     log: "logs/{sample}_{ident}otu_lambda.log"
     threads: 3
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads}  &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifyITS:
-    input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", clu="otus/{sample}_{ident}otus.fasta", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/{sample}_{ident}otuClass.log", "logs/{sample}_{ident}otu_itsTax.log"
@@ -521,13 +521,9 @@ rule classifyITS:
         evalueFilter = 0
         identFilter = 0
         covFilter = 0
-#        for rec in SeqIO.parse(open(input.clu), "fasta"):
-#            seqNr += 1
-#            classifi[rec.id] = []
-#            seqLength[rec.id] = len(rec)
         for line in open(input.lam, encoding="latin-1"):
             total +=1
-            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore = line.strip().split("\t")
+            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
             readId = qseqid.split("|")[0]
             if float(evalue) > params.maxE:
                 evalueFilter += 1
@@ -535,9 +531,10 @@ rule classifyITS:
             if float(pident) < params.minIdent:
                 identFilter +=1
                 continue
-#            if float(length)/seqLength[readId]*100 < params.minCov:
-#                covFilter += 1
-#                continue
+            mLen = min(int(qlen), int(slen))
+            if float(length)/mLen*100 < params.minCov:
+                covFilter += 1
+                continue
             linStr = taxDict[sseqid]
             try:
                 classifi[readId].append((linStr, float(bitscore)))
@@ -577,10 +574,10 @@ rule alignToSilva:
     log: "logs/{sample}_{ident}otu{marker}_lambda.log"
     threads: 3
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} -p blastn -t {threads} &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifySilva:
-    input: lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", clu="otus/{sample}_{ident}otus.fasta", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    input: lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/{sample}_{marker}_{ident}otuClass.log"
@@ -597,13 +594,9 @@ rule classifySilva:
         evalueFilter = 0
         identFilter = 0
         covFilter = 0
-#        for rec in SeqIO.parse(open(input.clu), "fasta"):
-#            seqNr += 1
-#            classifi[rec.id] = []
-#            seqLength[rec.id] = len(rec)
         for line in open(input.lam, encoding="latin-1"):
             total +=1
-            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore = line.strip().split("\t")
+            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
             readId = qseqid
             if float(evalue) > params.maxE:
                 evalueFilter += 1
@@ -611,9 +604,10 @@ rule classifySilva:
             if float(pident) < params.minIdent:
                 identFilter +=1
                 continue
-#            if float(length)/seqLength[readId]*100 < params.minCov:
-#                covFilter += 1
-#                continue
+            mLen = min(int(qlen), int(slen))
+            if float(length)/mLen*100 < params.minCov:
+                covFilter += 1
+                continue
             linStr = taxDict[sseqid]
             try:
                 classifi[qseqid].append((linStr, float(bitscore)))

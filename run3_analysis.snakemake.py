@@ -23,7 +23,8 @@ for lib, bcList in config["samples"].items():
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: expand("taxonomy/{sample}_97_comb.class.tsv", sample=samples)
+#    input: expand("taxonomy/{sample}_97_comb.class.tsv", sample=samples)
+    input: expand("windowQualFilter/{sample}_goodQual.fastq", sample=samples)
 
 rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
@@ -84,6 +85,7 @@ rule qualityFilter:
     log: "logs/{sample}_qualityFilter.log"
     run:
         removed = 0
+        
         with open(output.good, "w") as out, open(output.bad, "w") as trash, open(output.info, "w") as info:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
                 try:
@@ -99,25 +101,73 @@ rule qualityFilter:
                     out.write(read.format("fastq"))
         open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, params.minQual))
 
+rule qualityVsLength:
+    input: fasta="lenFilter/{sample}_rightLen.fastq", qual="qualFilter/{sample}_qualInfo.tsv"
+    output: tsv="qualFilter/{sample}_LenVsQual.tsv"
+    run:
+        qual = {}
+        for line in open(input.qual):
+            rId, q = line.strip().split("\t")
+            qual[rId] = float(q)
+        with open(output.tsv, "w") as out:
+            for rec in SeqIO.parse(open(input.fasta), "fastq"):
+                out.write("%s\t%s\t%i\t%f\n" % (wildcards.sample, rec.id, len(rec), qual[rec.id]))
+
+rule concatQualVsLength:
+    input: expand("qualFilter/{sample}_LenVsQual.tsv", sample=samples)
+    output: "qualFilter/lenVsQual.tsv"
+    shell:
+        "cat {input} > {output}"
+
+rule plotQualVsLength:
+    input: "qualFilter/lenVsQual.tsv"
+    output: "lenVsQual.png"
+    run:
+        R("""
+        library(ggplot2)
+        d=read.table("{input}", header=F)
+        colnames(d) = c("sample", "read", "length", "qual")
+        m=lm(qual~length+sample, d)
+        
+        ggplot(d) + geom_point(aes(length, qual, color=sample), alpha=0.5) + geom_smooth(aes(length, qual), method = "lm", linetype = 2)
+        ggsave("{output}", width=16, height=10)
+        """)
+        
+
 rule windowQualFilter:
     input: fastq="qualFilter/{sample}_goodQual.fastq"
-    output: good="windowQualFilter/{sample}_goodQual.fastq"
+    output: good="windowQualFilter/{sample}_goodQual.fastq", stat="windowQualFilter/{sample}_stat.tsv"
     params: winSize=8, minQual=0.9
     log: "logs/{sample}_winQualityFilter.log"
     run:
         removed = 0
-        with open(output.good, "w") as out:
+        with open(output.good, "w") as out, open(output.stat, "w") as statOut:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
-                tRemoved=False
+                anyRemoved = False
                 for i in range(len(read)-params.winSize):
                     tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+params.winSize] ]) / params.winSize
-                    if (1-tError) < params.minQual:
+                    tQual = 1 - tError
+                    tRemoved=False
+                    if (tQual) < params.minQual:
                         removed += 1
                         tRemoved = True
-                        break
-                if not tRemoved:
+                    kmer=str(read.seq[i:i+params.winSize])
+                    hp = homopoly(kmer)
+                    statOut.write("%s\t%s\t%i\t%i\t%f\t%s\t%s\t%i\t%i\t%i\t%i\t%i\n" % (wildcards.sample, read.id, i, len(read), tQual, tRemoved, kmer, kmer.count("A"), kmer.count("C"), kmer.count("G"), kmer.count("T"), hp))
+                if not anyRemoved:
                     out.write(read.format("fastq"))
-            open(log[0], "w").write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
+            with open(log[0], "w") as logFile:
+                logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
+
+rule catWindowQual:
+    input: expand("windowQualFilter/Lib{libNr}-0075_stat.tsv", libNr=range(1,9)), expand("windowQualFilter/Lib{libNr}-0034_stat.tsv", libNr=[1,2,3,5,6,7,8]), "windowQualFilter/Lib4-0018_stat.tsv"
+    output: "windowQualFilter/envStats.tsv"
+    shell:
+        "cat {input} > {output}"
+
+rule plotWindowQual:
+    input: "windowQualFilter/envStats.tsv"
+    
 
 rule filterPrimer:
     input: "windowQualFilter/{sample}_goodQual.fastq"
@@ -965,6 +1015,19 @@ def fastaConsensus(inFasta, warn=0.75, log=sys.stderr):
         if most[0] != "-":
             cons.append(most[0])
     return "".join(cons)
+
+def homopoly(kmer):
+    last=None
+    rv=1
+    h=1
+    for j in range(len(kmer)):
+        if kmer[j] == last:
+            h +=1
+        else:
+            rv=max(rv, h)
+            h=1
+            last = kmer[j]
+    return(max(rv, h))
 
 #def samConsensus(inSam, warn=0.75, log=sys.stderr):
 #    prof = []

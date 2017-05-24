@@ -463,22 +463,6 @@ rule otuReads:
         with open(output.preInfo, "wb") as eOut:
             pickle.dump(otuPreClusters, eOut)
 
-rule transferOtus:
-    input: info="otus/all_{ident}otu_preClusterInfo.pic", fasta="catItsx/all.{marker}.fasta"
-    output: "otus/all_{ident}otus_{marker}.fasta"
-    run:
-        otu2precluster = pickle.load(open(input.info, "rb"))
-        precluster2otu = {}
-        for otu, pClusterList in otu2precluster.items():
-            for pCluster in pClusterList:
-                precluster2otu[pCluster] = otu
-        with open(output[0], "w") as out:
-            for rec in SeqIO.parse(open(input.fasta), "fasta"):
-                readId = rec.id.rsplit("|", 1)[0]
-                if readId in precluster2otu:
-                    rec.id = "%s/%s" % (readId, wildcards.marker)
-                    out.write(rec.format("fasta"))
-
 ####################################################################
 # DBs
 
@@ -635,12 +619,29 @@ rule alignToSilva:
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
+rule transferOtus:
+    input: info="otus/all_{ident}otu_preClusterInfo.pic", fasta="catItsx/all.{marker}.fasta"
+    output: "otus/all_{ident}otus_{marker}.fasta"
+    run:
+        otu2precluster = pickle.load(open(input.info, "rb"))
+        precluster2otu = {}
+        for otu, pClusterList in otu2precluster.items():
+            for pCluster in pClusterList:
+                precluster2otu[pCluster] = otu
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+                readId = rec.id.rsplit("|", 1)[0]
+                if readId in precluster2otu:
+                    rec.id = "%s/%s" % (readId, wildcards.marker)
+                    out.write(rec.format("fasta"))
+
 rule classifySilva:
-    input: lam="lambda/all.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    input: otuInfo="otus/all_{ident}otu_preClusterInfo.pic", lam="lambda/all.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     output: "taxonomy/all_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/all_{marker}_{ident}otuClass.log", "logs/all_{ident}otu_{marker}tax.log"
     run:
+        otu2precluster = pickle.load(open(input.otuInfo, "rb"))
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
@@ -667,10 +668,11 @@ rule classifySilva:
                 covFilter += 1
                 continue
             linStr = taxDict[sseqid]
+            size = int(qseqid.split(";")[2].split("=")[1])
             try:
-                classifi[qseqid].append((linStr, float(bitscore)))
+                classifi[qseqid].append((linStr, float(bitscore), size))
             except KeyError:
-                classifi[qseqid]= [(linStr, float(bitscore))]
+                classifi[qseqid]= [(linStr, float(bitscore), size)]
         with open(log[0], "w") as logOut:
             logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
             logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
@@ -678,16 +680,23 @@ rule classifySilva:
             logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
         topPerc = params.topPerc/100.0
         with open(output[0], "w") as out, open(log[1], "w") as logTax:
-            for key, hits in classifi.items():
+            for otuId, pCluList in otu2precluster.items():
+                hits = []
+                for pClu in pCluList:
+                    hits.extend(classifi.get("%s/%s" % (pClu, wildcards.marker), []))
+                if len(hits) == 0:
+                    logTax.write("%s\tNO HITS\n" % (otuId))
+                    continue
                 sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
                 cutoff = 0
                 while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
                     cutoff += 1
                 goodHits = [hit[0] for hit in sortedHits[:cutoff]]
-                for h in goodHits:
-                    logTax.write("%s\t%s\n" % (key, h))
-                lineage = lca(goodHits, params.stringency)
-                out.write("%s\t%s\n" % (key, lineage))
+                goodHitsSize = [hit[2] for hit in sortedHits[:cutoff]]
+                for h, scr, sz in sortedHits[:cutoff]:
+                    logTax.write("%s\t%s\t%i\t%f\n" % (otuId, h, sz, scr))
+                lineage = lca(goodHits, params.stringency, sizes=goodHitsSize)
+                out.write("%s\t%s\n" % (otuId, lineage))
 
 rule getCorrectCls:
     input: otuInfo="otus/Lib4-0018_{ident}otuReadInfo.pic", cls="mapping/assignment/Lib4-0018_assignments.tsv"
@@ -712,11 +721,10 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCls:
-    input: ssu="taxonomy/all_{ident}otu_SSU.class.tsv", its="taxonomy/all_{ident}otu_ITS.class.tsv", lsu="taxonomy/all_{ident}otu_LSU.class.tsv", otu2preClu="otus/all_{ident}otu_preClusterInfo.pic", size="otus/all_{ident}otus.size.tsv"
+    input: ssu="taxonomy/all_{ident}otu_SSU.class.tsv", its="taxonomy/all_{ident}otu_ITS.class.tsv", lsu="taxonomy/all_{ident}otu_LSU.class.tsv", size="otus/all_{ident}otus.size.tsv"
     output: "taxonomy/all_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
-        otu2preClu = pickle.load(open(input.otu2preClu, "rb"))
         ssu = {}
         for line in open(input.ssu):
             ssuId, ssuTax = line.strip().split("\t")
@@ -735,9 +743,8 @@ rule compareCls:
                 itsId, sizeStr = line.strip().split("\t")
                 size = int(sizeStr)
                 itsTax = its.get(itsId, "unknown")
-                otuReads = otu2preClu["%s" % itsId]
-                lsuTax = lca([lsu.get("%s/LSU" %r, "unknown") for r in otuReads], params.stringency)
-                ssuTax = lca([ssu.get("%s/SSU" %r, "unknown") for r in otuReads], params.stringency)
+                lsuTax = lsu.get(itsId, "unknown")
+                ssuTax = ssu.get(itsId, "unknown")
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule compareCorrectCls:
@@ -761,7 +768,7 @@ rule compareCorrectCls:
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],
-        ignoreIncertaeSedis=True):
+        ignoreIncertaeSedis=True, sizes=None):
     lineage = []
     mLineages = []
     #remove bootstrap values ("(100)", "(75)", etc.) if any
@@ -787,11 +794,15 @@ def lca(lineageStrings, stringency=1.0,
             if ignoreIncertaeSedis and name.startswith("Incertae"):
                 continue # ignoring Incertae sedis entries.
                          # NOTE: this will mean lineages end at the first Incerta sedis
-            total += 1
+            if sizes is None:
+                tSize = 1
+            else:
+                tSize = sizes[m]
+            total += tSize
             try:
-                counts[memberLin[i]] += 1
+                counts[memberLin[i]] += tSize
             except KeyError:
-                counts[memberLin[i]] = 1
+                counts[memberLin[i]] = tSize
         if not counts:
             #no valid lineage entrys found in this level
             break

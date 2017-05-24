@@ -11,20 +11,22 @@ import networkx as nx
 
 shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution and slow samba
 
-include: "mapping.snakemake.py"
+#include: "mapping.snakemake.py"
 
 configfile: "config.json"
 
-samples = []
-for lib, bcList in config["samples"].items():
-    for bc in bcList: 
-        samples.append("%s-%s" % (lib, bc))
+#samples = expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2,3,5,6,7,8]) + ["Lib4-0018"]
+#samples = []
+#for lib, bcList in config["samples"].items():
+#    for bc in bcList: 
+#        samples.append("%s-%s" % (lib, bc))
+samples=["Lib4-0018"]
 #print(sorted(samples))
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-#    input: expand("taxonomy/{sample}_97_comb.class.tsv", sample=samples)
-    input: expand("windowQualFilter/{sample}_goodQual.fastq", sample=samples)
+    input: expand("taxonomy/all_97_comb.class.tsv", sample=samples)
+#    input: expand("primers/{sample}_primer.fasta", sample=samples)
 
 rule unpack:
     input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
@@ -313,21 +315,21 @@ rule plotReadNumber:
         ggsave("{output}", width=16, height=10)
         """)
 
-rule concat:
-    input: expand("primers/{sample}_primer.fastq", sample=samples)
-    output: fasta="primers/all_minLen.fasta", tsv="sampleInfo.tsv"
-    log: "logs/all_minLen.log"
-    params: minLen=2000
-    run:
-        with open(output.fasta, "w") as fasta, open(output.tsv, "w") as out, open(log[0], "w") as logFile:
-            for inFile in input:
-                for rec in SeqIO.parse(open(inFile), "fastq"):
-                    if len(rec) < params.minLen:
-                        logFile.write("Removed %s, length %i < %i" % (rec.id, len(rec), params.minLen))
-                    else:
-                        fasta.write(rec.format("fasta"))
-                        sample = inFile.split("/")[-1].rsplit("_",1)[0]
-                        out.write("%s\t%s\n" % (rec.id, sample))
+#rule concat:
+#    input: expand("primers/{sample}_primer.fastq", sample=samples)
+#    output: fasta="primers/all_minLen.fasta", tsv="sampleInfo.tsv"
+#    log: "logs/all_minLen.log"
+#    params: minLen=2000
+#    run:
+#        with open(output.fasta, "w") as fasta, open(output.tsv, "w") as out, open(log[0], "w") as logFile:
+#            for inFile in input:
+#                for rec in SeqIO.parse(open(inFile), "fastq"):
+#                    if len(rec) < params.minLen:
+#                        logFile.write("Removed %s, length %i < %i" % (rec.id, len(rec), params.minLen))
+#                    else:
+#                        fasta.write(rec.format("fasta"))
+#                        sample = inFile.split("/")[-1].rsplit("_",1)[0]
+#                        out.write("%s\t%s\n" % (rec.id, sample))
 
 rule prepPrecluster:
     input: fasta="primers/{sample}_primer.fasta", qual="qualFilter/{sample}_qualInfo.tsv"
@@ -355,34 +357,24 @@ rule preCluster:
     log: "logs/{sample}_pre-cluster.log"
     threads: 6
     shell:
-        "%(vsearch)s --usersort --cluster_smallmem {input} --relabel precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
+        "%(vsearch)s --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
-rule preclusterSize:
+rule preClusterInfo:
     input: clsInfo="preclusters/{sample}.uc.txt"
-    output: "preclusters/{sample}_cluster.size.tsv"
+    output: info="preclusters/{sample}_cluInfo.tsv", size="preclusters/{sample}_cluster.size.tsv"
     run:
-        with open(output[0], "w") as out:
-            for line in open(input[0]):
-                if line[0] != "C":
-                    continue
-                rType, cNr, size, _ = line.split("\t", 3)
-                out.write("precluster%i\t%s\n" % (int(cNr)+1, size))
-
-rule preClusterReads:
-    input: clsInfo="preclusters/{sample}.uc.txt"
-    output: info="preclusters/{sample}_cluInfo.tsv"
-    run:
-        with open(output.info, "w") as out:
+        with open(output.info, "w") as out, open(output.size, "w") as sOut:
             for line in open(input.clsInfo):
                 if line[0] == "C":
-                    pass
+                    rType, cNr, size, _ = line.split("\t", 3)
+                    sOut.write("precluster%i\t%s\n" % (int(cNr)+1, size))
                 elif line[0] in "SH":
                     arr = line.strip().split("\t")
                     seq = arr[-2]
                     cluNr = int(arr[1])
-                    out.write("precluster%i\t%s\n" % (cluNr+1, seq))
+                    out.write("%s_precluster%i\t%s\n" % (wildcards.sample, cluNr+1, seq))
                 else:
-                    raise ValueError("Unknown record type: %s" % arr[0])
+                    raise ValueError("Unknown record type: %s" % line[0])
 
 rule removeChimera:
     input: seqs="consensus/{sample}_consensus.fasta"
@@ -400,25 +392,45 @@ rule itsx:
         "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
 
+rule getSampleMapping:
+    input: expand("itsx/{sample}.full.fasta", sample=samples)
+    output: sample="preClu2sample.pic"
+    run:
+        preClu2sample = {}
+        for inputFile in input:
+            sample = inputFile.split("/", 1)[0].split(".", 1)[0]
+            for l, line in enumerate(open(inputFile)):
+                if l%4 == 0:
+                    readId = line[1:].split(" ", 1)[0]
+                    read2sample[readId] = sample
+        pickle.dump(preClu2sample, open(input.sample, "wb"))
+
+rule concatItsxResult:
+    input: expand("itsx/{sample}.{{marker}}.fasta", sample=samples)
+    output: "catItsx/all.{marker}.fasta"
+    shell:
+        "cat {input} > {output}"
+
 rule otuCluster:
-    input: "itsx/{sample}.full.fasta"
-    output: fasta="otus/{sample}_{ident}otus.fasta", uc="otus/{sample}_{ident}otus.uc.tsv"
-    log: "logs/{sample}_{ident}otuClustering.log"
+    input: "catItsx/all.full.fasta"
+    output: fasta="otus/all_{ident}otus.fasta", uc="otus/all_{ident}otus.uc.tsv"
+    log: "logs/all_{ident}otuClustering.log"
     threads: 3
     shell:
         "%(vsearch)s --cluster_size {input} --relabel otu --sizein --sizeout --iddef 0 --id 0.{wildcards.ident} --minsl 0.9 --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule otuReads:
-    input: info="otus/{sample}_{ident}otus.uc.tsv", preInfo="preclusters/{sample}_cluInfo.tsv"
-    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otuPreClusterInfo.pic"
+    input: info="otus/all_{ident}otus.uc.tsv", preInfo=expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
+    output: size="otus/all_{ident}otus.size.tsv", info="otus/all_{ident}otuReadInfo.pic", preInfo="otus/all_{ident}otu_preClusterInfo.pic"
     run:
         preClusterReads={}
-        for line in open(input.preInfo):
-            clu, seq = line.strip().split("\t")
-            try:
-                preClusterReads[clu].append(seq)
-            except KeyError:
-                preClusterReads[clu] = [seq]
+        for preInfoFile in input.preInfo:
+            for line in open(preInfoFile):
+                clu, seq = line.strip().split("\t")
+                try:
+                    preClusterReads[clu].append(seq)
+                except KeyError:
+                    preClusterReads[clu] = [seq]
         clusterReads = {}
         otuPreClusters = {}
         for line in open(input.info):
@@ -452,8 +464,8 @@ rule otuReads:
             pickle.dump(otuPreClusters, eOut)
 
 rule transferOtus:
-    input: info="otus/{sample}_{ident}otuPreClusterInfo.pic", fasta="itsx/{sample}.{marker}.fasta"
-    output: "otus/{sample}_{ident}otus_{marker}.fasta"
+    input: info="otus/all_{ident}otu_preClusterInfo.pic", fasta="catItsx/all.{marker}.fasta"
+    output: "otus/all_{ident}otus_{marker}.fasta"
     run:
         otu2precluster = pickle.load(open(input.info, "rb"))
         precluster2otu = {}
@@ -545,18 +557,18 @@ rule creatSilvaIndex:
 
 
 rule alignToUnite:
-    input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, dbFlag="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config
-    output: "lambda/{sample}.{ident}otu_vs_UNITE.m8"
-    log: "logs/{sample}_{ident}otu_lambda.log"
+    input: clu="otus/all_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, dbFlag="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta.lambdaIndexCreated" % config
+    output: "lambda/all.{ident}otu_vs_UNITE.m8"
+    log: "logs/all_{ident}otu_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifyITS:
-    input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
-    output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
+    input: lam="lambda/all.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    output: "taxonomy/all_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_{ident}otuClass.log", "logs/{sample}_{ident}otu_itsTax.log"
+    log: "logs/all_{ident}otuClass.log", "logs/all_{ident}otu_itsTax.log"
     run:
         taxDict = {}
         for line in open(input.tax):
@@ -597,18 +609,15 @@ rule classifyITS:
         topPerc = params.topPerc/100.0
         with open(output[0], "w") as out:
             for key, hits in classifi.items():
-                if not hits:
-                    out.write("%s\tunknown\n" % (key))
-                else:
-                    sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
-                    cutoff = 0
-                    while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
-                        cutoff += 1
-                    goodHits = [hit[0] for hit in sortedHits[:cutoff]]
-                    for h in goodHits:
-                        logTax.write("%s\t%s\n" % (key, h))
-                    lineage = lca(goodHits, params.stringency)
-                    out.write("%s\t%s\n" % (key, lineage))
+                sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
+                cutoff = 0
+                while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
+                    cutoff += 1
+                goodHits = [hit[0] for hit in sortedHits[:cutoff]]
+                for h in goodHits:
+                    logTax.write("%s\t%s\n" % (key, h))
+                lineage = lca(goodHits, params.stringency)
+                out.write("%s\t%s\n" % (key, lineage))
         try:
             logOut.close()
         except:
@@ -619,24 +628,23 @@ rule classifyITS:
             pass
 
 rule alignToSilva:
-    input: clu="otus/{sample}_{ident}otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
-    output: "lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8"
-    log: "logs/{sample}_{ident}otu{marker}_lambda.log"
+    input: clu="otus/all_{ident}otus_{marker}.fasta", db="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, dbFlag="%(dbFolder)s/silva_{marker}_lambdaIndexCreated" % config
+    output: "lambda/all.{ident}otu_{marker}_vs_SILVA.m8"
+    log: "logs/all_{ident}otu{marker}_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifySilva:
-    input: lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
-    output: "taxonomy/{sample}_{ident}otu_{marker}.class.tsv"
+    input: lam="lambda/all.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    output: "taxonomy/all_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_{marker}_{ident}otuClass.log"
+    log: "logs/all_{marker}_{ident}otuClass.log", "logs/all_{ident}otu_{marker}tax.log"
     run:
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
             taxDict[rId] = tax
-        logOut = open(log[0], "w")
         classifi = {}
         seqLength = {}
         seqNr = 0
@@ -663,26 +671,23 @@ rule classifySilva:
                 classifi[qseqid].append((linStr, float(bitscore)))
             except KeyError:
                 classifi[qseqid]= [(linStr, float(bitscore))]
-        logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
-        logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
-        logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
-        logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
+        with open(log[0], "w") as logOut:
+            logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
+            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
+            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
+            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
         topPerc = params.topPerc/100.0
-        with open(output[0], "w") as out:
+        with open(output[0], "w") as out, open(log[1], "w") as logTax:
             for key, hits in classifi.items():
-                if not hits:
-                    out.write("%s\tunknown\n" % (key))
-                else:
-                    sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
-                    cutoff = 0
-                    while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
-                        cutoff += 1
-                    lineage = lca([hit[0] for hit in sortedHits[:cutoff]], params.stringency)
-                    out.write("%s\t%s\n" % (key, lineage))
-        try:
-            logOut.close()
-        except:
-            pass
+                sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
+                cutoff = 0
+                while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
+                    cutoff += 1
+                goodHits = [hit[0] for hit in sortedHits[:cutoff]]
+                for h in goodHits:
+                    logTax.write("%s\t%s\n" % (key, h))
+                lineage = lca(goodHits, params.stringency)
+                out.write("%s\t%s\n" % (key, lineage))
 
 rule getCorrectCls:
     input: otuInfo="otus/Lib4-0018_{ident}otuReadInfo.pic", cls="mapping/assignment/Lib4-0018_assignments.tsv"
@@ -707,14 +712,10 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCls:
-    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", otu2preClu="otus/{sample}_{ident}otuPreClusterInfo.pic", size="otus/{sample}_{ident}otus.size.tsv"
-    output: "taxonomy/{sample}_{ident}_comb.class.tsv"
+    input: ssu="taxonomy/all_{ident}otu_SSU.class.tsv", its="taxonomy/all_{ident}otu_ITS.class.tsv", lsu="taxonomy/all_{ident}otu_LSU.class.tsv", otu2preClu="otus/all_{ident}otu_preClusterInfo.pic", size="otus/all_{ident}otus.size.tsv"
+    output: "taxonomy/all_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
-        otuSize = {}
-        for line in open(input.size):
-            oId, size = line.strip().split("\t")
-            otuSize[oId] = int(size)
         otu2preClu = pickle.load(open(input.otu2preClu, "rb"))
         ssu = {}
         for line in open(input.ssu):
@@ -724,14 +725,19 @@ rule compareCls:
         for line in open(input.lsu):
             lsuId, lsuTax = line.strip().split("\t")
             lsu[lsuId] = lsuTax
+        its = {}
+        for line in open(input.its):
+            itsName, itsTax = line.strip().split("\t")
+            itsId, itsSizeStr = itsName.strip(";").split(";")
+            its[itsId] = itsTax
         with open(output[0], "w") as out:
-            for line in open(input.its):
-                itsName, itsTax = line.strip().split("\t")
-                itsId, itsSizeStr = itsName.strip(";").split(";")
+            for line in open(input.size):
+                itsId, sizeStr = line.strip().split("\t")
+                size = int(sizeStr)
+                itsTax = its.get(itsId, "unknown")
                 otuReads = otu2preClu["%s" % itsId]
-                lsuTax = lca([lsu["%s/LSU" %r] for r in otuReads], params.stringency)
-                ssuTax = lca([ssu["%s/SSU" %r] for r in otuReads], params.stringency)
-                size = otuSize["%s" % itsId]
+                lsuTax = lca([lsu.get("%s/LSU" %r, "unknown") for r in otuReads], params.stringency)
+                ssuTax = lca([ssu.get("%s/SSU" %r, "unknown") for r in otuReads], params.stringency)
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule compareCorrectCls:

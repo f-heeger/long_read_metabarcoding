@@ -617,7 +617,7 @@ rule alignToSilva:
     log: "logs/all_{ident}otu{marker}_lambda.log"
     threads: 3
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -d {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} -b -2 &> {log}" % config
 
 rule transferOtus:
     input: info="otus/all_{ident}otu_preClusterInfo.pic", fasta="catItsx/all.{marker}.fasta"
@@ -639,7 +639,7 @@ rule classifySilva:
     input: otuInfo="otus/all_{ident}otu_preClusterInfo.pic", lam="lambda/all.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     output: "taxonomy/all_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/all_{marker}_{ident}otuClass.log", "logs/all_{ident}otu_{marker}tax.log"
+    log: "logs/all_{marker}_{ident}otuClass.log", "logs/all_{ident}otu_{marker}tax.log", "logs/all_{ident}otu_{marker}_tiling.log"
     run:
         otu2precluster = pickle.load(open(input.otuInfo, "rb"))
         taxDict={}
@@ -653,6 +653,9 @@ rule classifySilva:
         evalueFilter = 0
         identFilter = 0
         covFilter = 0
+        hsp = {}
+#        sLen = {}
+        qLen = {}
         for line in open(input.lam, encoding="latin-1"):
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
@@ -663,16 +666,40 @@ rule classifySilva:
             if float(pident) < params.minIdent:
                 identFilter +=1
                 continue
-            mLen = min(int(qlen), int(slen))
-            if float(length)/mLen*100 < params.minCov:
-                covFilter += 1
-                continue
-            linStr = taxDict[sseqid]
-            size = int(qseqid.split(";")[2].split("=")[1])
-            try:
-                classifi[qseqid].append((linStr, float(bitscore), size))
-            except KeyError:
-                classifi[qseqid]= [(linStr, float(bitscore), size)]
+            if qseqid not in hsp:
+                hsp[qseqid] = {}
+                qLen[qseqid] = int(qlen)
+            if sseqid not in hsp[qseqid]:
+                hsp[qseqid][sseqid] = [(int(qstart), int(qend), float(bitscore))]
+#                sLen[sseqid] = int(slen)
+            else:
+                hsp[qseqid][sseqid].append((int(qstart), int(qend), float(bitscore)))
+        with open(log[2], "w") as tLog:
+            for qId in hsp.keys():
+                print(qId)
+                for sId, tHsp in hsp[qId].items():
+                    print(sId)
+                    print(tHsp)
+                    if len(tHsp)>1:
+                        used = findTiling(tHsp)
+                    else:
+                        used = [0]
+                    totalLen = 0
+                    totalScore = 0
+                    for i in used:
+                        totalLen += tHsp[i][1] - tHsp[i][0]
+                        totalScore += tHsp[i][2]
+                    pathStr = ",".join(["%i-%i" % (tHsp[i][0], tHsp[i][1]) for i in used])
+                    tLog.write("%s\t%s\t%i\t%i\t%s\n" % (qId, sId, len(used), len(tHsp), pathStr))
+                    if totalLen/qLen[qId]*100 < params.minCov:
+                        covFilter += 1
+                        continue
+                    linStr = taxDict[sId]
+                    size = int(qId.split(";")[2].split("=")[1])
+                    try:
+                        classifi[qId].append((linStr, totalScore, size))
+                    except KeyError:
+                        classifi[qId]= [(linStr, totalScore, size)]
         with open(log[0], "w") as logOut:
             logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
             logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
@@ -765,6 +792,41 @@ rule compareCorrectCls:
                 corr = corrCls[itsId]
 #                size = otuSize["%s/ITS" % itsId]
                 out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (itsId, size, corr, ssuTax, itsTax, lsuTax))
+
+def findTiling(hsp):
+    G=nx.DiGraph()
+    G.add_nodes_from(range(len(hsp)))
+    #create edges between all non-overlapping matches
+    e = []
+    for i in range(len(hsp)):
+        for j in range(len(hsp)):
+            if hsp[i][1] < hsp[j][0]:
+                #use negative bit score as edge weight to be able to use minimum path algorithm to find maximum path
+                e.append((i, j, -hsp[j][2]))
+    G.add_weighted_edges_from(e)
+
+    #find sources and start node
+    s_edges = []
+    for node, id in G.in_degree_iter():
+        if id==0:
+            s_edges.append(("START", node, -hsp[node][2]))
+    G.add_weighted_edges_from(s_edges)
+    #find sinks and add end node
+    e_edges = []
+    s_edges = []
+    for node, od in G.out_degree_iter():
+        if od==0:
+            e_edges.append((node, "END", 0))
+    G.add_weighted_edges_from(e_edges)
+    #find shortest (ie. maximum score) path from start to end
+    pre, dist = nx.floyd_warshall_predecessor_and_distance(G)
+    end = "END"
+    path = []
+    while pre["START"][end] != "START":
+        path.append(pre["START"][end])
+        end = pre["START"][end]
+
+    return path[::-1]
 
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],

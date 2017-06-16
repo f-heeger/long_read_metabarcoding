@@ -6,8 +6,6 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
 
 from snakemake.utils import min_version, R
-from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
-HTTP = HTTPRemoteProvider()
 
 import networkx as nx
 

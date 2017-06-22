@@ -409,26 +409,31 @@ rule concatItsxResult:
     shell:
         "cat {input} > {output}"
 
+def otuInput(wildcards):
+    if wildcards.sample == "all":
+        return "catItsx/all.full.fasta"
+    else:
+        return "itsx/%s.full.fasta" % wildcards.sample
+
 rule otuCluster:
-    input: "catItsx/all.full.fasta"
-    output: fasta="otus/all_{ident}otus.fasta", uc="otus/all_{ident}otus.uc.tsv"
-    log: "logs/all_{ident}otuClustering.log"
+    input: otuInput
+    output: fasta="otus/{sample}_{ident}otus.fasta", uc="otus/{sample}_{ident}otus.uc.tsv"
+    log: "logs/{sample}_{ident}otuClustering.log"
     threads: 3
     shell:
         "%(vsearch)s --cluster_size {input} --relabel otu --sizein --sizeout --iddef 0 --id 0.{wildcards.ident} --minsl 0.9 --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule otuReads:
-    input: info="otus/all_{ident}otus.uc.tsv", preInfo=expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
-    output: size="otus/all_{ident}otus.size.tsv", info="otus/all_{ident}otuReadInfo.pic", preInfo="otus/all_{ident}otu_preClusterInfo.pic"
+    input: info="otus/{sample}_{ident}otus.uc.tsv", preInfo="preclusters/{sample}_cluInfo.tsv"
+    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otu_preClusterInfo.pic"
     run:
         preClusterReads={}
-        for preInfoFile in input.preInfo:
-            for line in open(preInfoFile):
-                clu, seq = line.strip().split("\t")
-                try:
-                    preClusterReads[clu].append(seq)
-                except KeyError:
-                    preClusterReads[clu] = [seq]
+        for line in open(input.preInfo):
+            clu, seq = line.strip().split("\t")
+            try:
+                preClusterReads[clu].append(seq)
+            except KeyError:
+                preClusterReads[clu] = [seq]
         clusterReads = {}
         otuPreClusters = {}
         for line in open(input.info):
@@ -580,14 +585,59 @@ rule filterSilva:
                 out.write(rec.format("fasta"))
             open(log[0], "w").write("%i sequences read. %i sequences removed because of sequence quality < %f.\n%i sequences removed because of pintail quality < %f.\n" % (total, badS, params.minSeqQ, badP, params.minPinQ))
 
+rule getSilvaTaxMap:
+    output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt" % config
+
+rule getSilvaTaxMapMd5:
+    output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
+
+rule testSilvaTaxMap:
+    input: md5="%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config, txt="%(dbFolder)s/tax_slv_ssu_128.txt" % config
+    output: touch("%(dbFolder)s/silva_{marker}dl_tax_good" % config)
+    shell: 
+        "cd %(dbFolder)s;" \
+        "md5sum -c tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
+
+def renameSilvaTaxInput(wildcards):
+    return "%(dbFolder)s/tax_slv_" % config + wildcards.marker.lower() + "_%(silvaVersion)s.txt" % config #, "%(dbFolder)s/silva_"% config + wildcards.marker.lower() + "dl_tax_good"]
+
+rule renameSilvaTax:
+    input: renameSilvaTaxInput
+    output: "%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
+    shell: "mv {input} {output}"
+
 rule createSlivaTax:
-    input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
+    input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, tax="%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
     output: tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     run:
+        accRank = ["domain", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        rank = {}
+        for line in open(input.tax):
+            path, tId, tRank, remark, release = line.strip("\n").split("\t")
+            rank[path.strip(";").replace(" ", "_")] = tRank
         with open(output.tax, "w") as tOut:
-            for rec in SeqIO.parse(open(input[0]), "fasta"):
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
                 tax = rec.description.split(" ", 1)[1].replace(" ", "_")
-                tOut.write("%s\t%s\n" % (rec.id, tax))
+                taxArr = tax.strip(";").split(";")
+                newTax = dict(zip(accRank, ["Incertae_Sedis"]*8))
+                for i in range(len(taxArr)-1):
+                    try:
+                        tRank = rank[";".join(taxArr[:i+1])]
+                    except KeyError:
+                        if ";".join(taxArr[:i+1]) == "Bacteria;RsaHf231":
+                            tRank="phylum" #work around for error in input file (v128), also mentioned here: http://blog.mothur.org/2017/03/22/SILVA-v128-reference-files/
+                        else:
+                            raise
+                    if tRank in accRank:
+                        newTax[tRank] = taxArr[i]
+                newTax["species"] = taxArr[-1]
+                tOut.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
 
 rule creatSilvaIndex:
     input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
@@ -596,22 +646,28 @@ rule creatSilvaIndex:
     shell:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
 
+rule getRdpLsu:
+    output: "%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config
+    shell: 
+        "cd %(dbFolder)s;" \
+        "wget http://rdp.cme.msu.edu/download/current_Fungi_unaligned.fa.gz"
+
 ####################################################################
 
 
 rule alignToUnite:
-    input: clu="otus/all_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
-    output: "lambda/all.{ident}otu_vs_UNITE.m8"
-    log: "logs/all_{ident}otu_lambda.log"
+    input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
+    output: "lambda/{sample}.{ident}otu_vs_UNITE.m8"
+    log: "logs/{sample}_{ident}otu_lambda.log"
     threads: 3
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifyITS:
-    input: lam="lambda/all.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
-    output: "taxonomy/all_{ident}otu_ITS.class.tsv"
+    input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/all_{ident}otuClass.log", "logs/all_{ident}otu_itsTax.log"
+    log: "logs/{sample}_{ident}otuClass.log", "logs/{sample}_{ident}otu_itsTax.log"
     run:
         taxDict = {}
         for line in open(input.tax):
@@ -671,34 +727,41 @@ rule classifyITS:
             pass
 
 rule alignToSilva:
-    input: clu="otus/all_{ident}otus_{marker}.fasta", db="%(dbFolder)s/silva_{marker}_index.lambda" % config
-    output: "lambda/all.{ident}otu_{marker}_vs_SILVA.m8"
-    log: "logs/all_{ident}otu{marker}_lambda.log"
+    input: clu="otus/{sample}_{ident}otus_{m}SU.fasta", db="%(dbFolder)s/silva_{m}SU_index.lambda" % config
+    output: "lambda/{sample}.{ident}otu_{m}SU_vs_SILVA.m8"
+    log: "logs/{sample}_{ident}otu{m}SU_lambda.log"
     threads: 6
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -as F &> {log}" % config
 
+def transferOtusInput(wildcards):
+    if wildcards.sample == "all":
+        return ["otus/all_%sotu_preClusterInfo.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
+    else:
+        return ["otus/%s_%sotu_preClusterInfo.pic" % (wildcards.sample, wildcards.ident), "itsx/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
+
+
 rule transferOtus:
-    input: info="otus/all_{ident}otu_preClusterInfo.pic", fasta="catItsx/all.{marker}.fasta"
-    output: "otus/all_{ident}otus_{marker}.fasta"
+    input: transferOtusInput
+    output: "otus/{sample}_{ident}otus_{marker}.fasta"
     run:
-        otu2precluster = pickle.load(open(input.info, "rb"))
+        otu2precluster = pickle.load(open(input[0], "rb"))
         precluster2otu = {}
         for otu, pClusterList in otu2precluster.items():
             for pCluster in pClusterList:
                 precluster2otu[pCluster] = otu
         with open(output[0], "w") as out:
-            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+            for rec in SeqIO.parse(open(input[1]), "fasta"):
                 readId = rec.id.rsplit("|", 1)[0]
                 if readId in precluster2otu:
                     rec.id = "%s/%s" % (readId, wildcards.marker)
                     out.write(rec.format("fasta"))
 
 rule classifySilva:
-    input: otuInfo="otus/all_{ident}otu_preClusterInfo.pic", lam="lambda/all.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
-    output: "taxonomy/all_{ident}otu_{marker}.class.tsv"
+    input: otuInfo="otus/{sample}_{ident}otu_preClusterInfo.pic", lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_{marker}.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/all_{marker}_{ident}otuClass.log", "logs/all_{ident}otu_{marker}tax.log", "logs/all_{ident}otu_{marker}_tiling.log"
+    log: "logs/{sample}_{marker}_{ident}otuClass.log", "logs/{sample}_{ident}otu_{marker}tax.log", "logs/{sample}_{ident}otu_{marker}_tiling.log"
     run:
         otu2precluster = pickle.load(open(input.otuInfo, "rb"))
         taxDict={}
@@ -783,8 +846,8 @@ rule classifySilva:
 
 
 rule compareCls:
-    input: ssu="taxonomy/all_{ident}otu_SSU.class.tsv", its="taxonomy/all_{ident}otu_ITS.class.tsv", lsu="taxonomy/all_{ident}otu_LSU.class.tsv", size="otus/all_{ident}otus.size.tsv"
-    output: "taxonomy/all_{ident}_comb.class.tsv"
+    input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", size="otus/{sample}_{ident}otus.size.tsv"
+    output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     params: stringency=.90
     run:
         ssu = {}
@@ -860,26 +923,18 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCorrectCls:
-    input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", otu="otu{ident}_table.tsv"
+    input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", otu= "taxonomy/Lib4-0018_{ident}_comb.class.tsv"
     output: "taxonomy/Lib4-0018_{ident}_combToCorr.class.tsv"
     run:
         corrCls = {}
         for line in open(input.correct):
             otuId, cls = line.strip().split("\t")
             corrCls[otuId] = cls
-        with open(output[0], "w") as out, open(input.otu) as otuTab:
-            header = next(otuTab).strip().split("\t")
-            i = 5
-            while header[i] != "Lib4-0018":
-                i+=1
-            for line in otuTab:
-                arr = line.strip().split("\t")
-                otuId, size, ssuTax, itsTax, lsuTax = arr[:5]
-                tSize = arr[i]
-                if tSize == 0:
-                    continue
+        with open(output[0], "w") as out:
+            for line in open(input.otu):
+                otuId, size, ssuTax, itsTax, lsuTax  = line.strip().split("\t")
                 corr = corrCls[otuId]
-                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, tSize, corr, ssuTax, itsTax, lsuTax))
+                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, size, corr, ssuTax, itsTax, lsuTax))
 
 def findTiling(hsp):
     G=nx.DiGraph()

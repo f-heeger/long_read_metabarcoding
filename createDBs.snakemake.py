@@ -1,0 +1,232 @@
+rule getUniteFile:
+    output: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://unite.ut.ee/sh_files/sh_general_release_%(uniteVersion)s.zip;" \
+        "unzip sh_general_release_%(uniteVersion)s.zip;" \
+        "rm sh_general_release_%(uniteVersion)s.zip" % config
+
+rule createUniteTax:
+    input: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
+    output: fasta="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    run:
+        with open(output.tax, "w") as tOut, open(output.fasta, "w") as fOut:
+            for rec in SeqIO.parse(open(input[0]), "fasta"):
+                arr = rec.id.split("|")
+                sh = arr[2]
+                tax = arr[-1]
+                tOut.write("%s\t%s\n" % (sh, tax))
+                rec.id = sh
+                fOut.write(rec.format("fasta"))
+
+rule creatUniteIndex:
+    input: "%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config
+    output: "%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+        
+rule getSilva_main:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz" % config
+
+rule getSilva_md5:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    shell: 
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    
+rule getSilva_test:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+    output: touch("%(dbFolder)s/silva_{marker}dl_good" % config)
+    shell: 
+        "cd %(dbFolder)s;" \
+        "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+
+rule unpackSilva:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, good="%(dbFolder)s/silva_{marker}dl_good" % config
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "gunzip SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz; " \
+        "touch SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta" % config
+
+rule getSilvaQual:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config
+    shell: "cd %(dbFolder)s;" \
+           "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/quality/SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz" % config
+           
+rule getSilvaQualMd5:
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz.md5" % config
+    shell: "cd %(dbFolder)s;" \
+           "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/quality/SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz.md5" % config
+           
+rule getSilvaQual_test:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz.md5" % config
+    output: touch("%(dbFolder)s/silva_{marker}dl_qual_good" % config)
+    shell: 
+        "cd %(dbFolder)s;" \
+        "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz.md5" % config
+
+rule unpackSilvaQual:
+    input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config, good="%(dbFolder)s/silva_{marker}dl_qual_good" % config
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "gunzip SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz; " \
+        "touch SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality" % config
+
+rule filterSilva:
+    input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, qual="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality" % config
+    output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
+    log: "%(dbFolder)s/silvaFilter_{marker}.log" % config
+    params: minSeqQ=85.0, minPinQ=50.0
+    run:
+        seqQ = {}
+        pinQ = {}
+        with open(input.qual) as qual:
+            header = next(qual)
+            for line in qual:
+                arr=line.strip().split("\t")
+                seqQ[arr[0]] = float(arr[5])
+                try:
+                    pinQ[arr[0]] = float(arr[12])
+                except ValueError:
+                    if arr[12] == "NULL":
+                        pinQ[arr[0]] = None
+                    else:
+                        raise
+        with open(output[0], "w") as out:
+            total=0
+            badS=0
+            badP=0
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+                total += 1
+                acc = rec.id.split(".")[0]
+                if seqQ[acc] < params.minSeqQ:
+                    badS += 1
+                    continue
+                if pinQ[acc] is None or pinQ[acc] < params.minPinQ:
+                    badP += 1
+                    continue
+                out.write(rec.format("fasta"))
+            open(log[0], "w").write("%i sequences read. %i sequences removed because of sequence quality < %f.\n%i sequences removed because of pintail quality < %f.\n" % (total, badS, params.minSeqQ, badP, params.minPinQ))
+
+rule getSilvaTaxMap:
+    output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt" % config
+
+rule getSilvaTaxMapMd5:
+    output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config
+    shell:
+        "cd %(dbFolder)s;" \
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
+
+rule testSilvaTaxMap:
+    input: md5="%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config, txt="%(dbFolder)s/tax_slv_ssu_128.txt" % config
+    output: touch("%(dbFolder)s/silva_{marker}dl_tax_good" % config)
+    shell: 
+        "cd %(dbFolder)s;" \
+        "md5sum -c tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
+
+def renameSilvaTaxInput(wildcards):
+    return "%(dbFolder)s/tax_slv_" % config + wildcards.marker.lower() + "_%(silvaVersion)s.txt" % config #, "%(dbFolder)s/silva_"% config + wildcards.marker.lower() + "dl_tax_good"]
+
+rule renameSilvaTax:
+    input: renameSilvaTaxInput
+    output: "%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
+    shell: "mv {input} {output}"
+
+rule createSlivaTax:
+    input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, tax="%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
+    output: tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    run:
+        accRank = ["domain", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        rank = {}
+        for line in open(input.tax):
+            path, tId, tRank, remark, release = line.strip("\n").split("\t")
+            rank[path.strip(";").replace(" ", "_")] = tRank
+        with open(output.tax, "w") as tOut:
+            for rec in SeqIO.parse(open(input.fasta), "fasta"):
+                tax = rec.description.split(" ", 1)[1].replace(" ", "_")
+                taxArr = tax.strip(";").split(";")
+                newTax = dict(zip(accRank, ["Incertae sedis"]*8))
+                for i in range(len(taxArr)-1):
+                    try:
+                        tRank = rank[";".join(taxArr[:i+1])]
+                    except KeyError:
+                        if ";".join(taxArr[:i+1]) == "Bacteria;RsaHf231":
+                            tRank="phylum" #work around for error in input file (v128), also mentioned here: http://blog.mothur.org/2017/03/22/SILVA-v128-reference-files/
+                        else:
+                            raise
+                    if tRank in accRank:
+                        newTax[tRank] = taxArr[i]
+                newTax["species"] = taxArr[-1]
+                tOut.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
+
+rule creatSilvaIndex:
+    input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
+    output: "%(dbFolder)s/silva_{marker}_index.lambda" % config
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+
+rule getRdpLsu:
+    output: "%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, "%(dbFolder)s/releaseREADME.txt" % config
+    shell: 
+        "cd %(dbFolder)s;" \
+        "wget http://rdp.cme.msu.edu/download/current_Fungi_unaligned.fa.gz;" \
+        "rm releaseREADME.txt" \
+        "wget http://rdp.cme.msu.edu/download/releaseREADME.txt" % config
+
+rule unpackRdpLsu:
+    input: gz="%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, version="%(dbFolder)s/releaseREADME.txt" % config
+    output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    run:
+        v=open(input.version).read().strip()
+        if v != config["rdpVersion"]:
+            raise RuntimeError("RDP version on server (%s) is different from the one specified in the config file (%s)." % (v, config["rdpVersion"]))
+        cmd="cd %(dbFolder)s;" \
+        "gunzip current_Fungi_unaligned.fa.gz; " \
+        "mv current_Fungi_unaligned.fa rdp_LSU_%(rdpVersion)s.fasta;" \
+        "touch rdp_LSU_%(rdpVersion)s.fasta" % config
+        shell(cmd)
+
+rule createRdpLsuTax:
+    input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    run:
+        accRank = ["domain", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input[0]), "fasta"):
+                seqIdStr, linStr = rec.description.strip().split("\t")
+                linArr = linStr.split("=", 1)[1].split(";")
+                spec = seqIdStr.split(";", 1)[0].split(" ", 1)[1]
+                newTax = dict(zip(accRank, [None]*8))
+                for i in range(0, len(linArr), 2):
+                    if linArr[i+1] in accRank:
+                        newTax[linArr[i+1]] = linArr[i]
+                newTax["kingdom"] = "Fungi"
+                newTax["domain"] = "Eukaryota"
+                newTax["species"] = spec
+                found=False
+                for rank in accRank[-2::-1]:
+                    if newTax[rank] is None:
+                        if found:
+                            newTax[rank] = "Incertae sedis"
+                        else:
+                            newTax[rank] = "unclassified"
+                    
+                out.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
+
+rule createRdpLsuIndex:
+    input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    output: "%(dbFolder)s/rdp_LSU_index.lambda" % config
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+

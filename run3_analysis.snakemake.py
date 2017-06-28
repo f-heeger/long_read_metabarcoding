@@ -25,7 +25,7 @@ samples = expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: expand("taxonomy/all_97_comb.class.tsv", sample=samples)
+    input: "taxonomy/all_97_comb.class.tsv"
 #    input: expand("primers/{sample}_primer.fasta", sample=samples)
 
 rule unpack:
@@ -394,7 +394,7 @@ rule itsx:
 
 rule getSampleMapping:
     input: expand("itsx/{sample}.full.fasta", sample=samples)
-    output: sample="preClu2sample.pic"
+    output: sample="{sample}_preClu2sample.pic"
     run:
         preClu2sample = {}
         for inputFile in input:
@@ -423,22 +423,34 @@ rule otuCluster:
     shell:
         "%(vsearch)s --cluster_size {input} --relabel otu --sizein --sizeout --iddef 0 --id 0.{wildcards.ident} --minsl 0.9 --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
+def otuReadsInput(wildcards):
+    if wildcards.sample == "all":
+        return ["otus/all_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
+    else:
+        return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident), "preclusters/all_cluInfo.tsv"]
+
 rule otuReads:
-    input: info="otus/{sample}_{ident}otus.uc.tsv", preInfo="preclusters/{sample}_cluInfo.tsv"
-    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otu_preClusterInfo.pic"
+    input: otuReadsInput
+    output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otu_preClusterInfo.pic", repInfo="otus/{sample}_{ident}otu_repSeq.pic"
     run:
         preClusterReads={}
-        for line in open(input.preInfo):
-            clu, seq = line.strip().split("\t")
-            try:
-                preClusterReads[clu].append(seq)
-            except KeyError:
-                preClusterReads[clu] = [seq]
+        for preInfo in input[1:]:
+            for line in open(preInfo):
+                clu, seq = line.strip().split("\t")
+                try:
+                    preClusterReads[clu].append(seq)
+                except KeyError:
+                    preClusterReads[clu] = [seq]
         clusterReads = {}
         otuPreClusters = {}
-        for line in open(input.info):
+        repSeq = {}
+        for line in open(input[0]):
             if line[0] == "C":
-                pass
+                arr = line.strip().split("\t")
+                otu = "otu%i" % (int(arr[1])+1)
+                seq = arr[-2]
+                seqId = seq.split("=", 1)[1].split(";", 1)[0]
+                repSeq[otu] = seqId
             elif line[0] in "SH":
                 arr = line.strip().split("\t")
                 seq = arr[-2]
@@ -465,6 +477,8 @@ rule otuReads:
             pickle.dump(otuInf, pOut)
         with open(output.preInfo, "wb") as eOut:
             pickle.dump(otuPreClusters, eOut)
+        with open(output.repInfo, "wb") as rOut:
+            pickle.dump(repSeq, rOut)
 
 ####################################################################
 # DBs
@@ -625,7 +639,7 @@ rule createSlivaTax:
             for rec in SeqIO.parse(open(input.fasta), "fasta"):
                 tax = rec.description.split(" ", 1)[1].replace(" ", "_")
                 taxArr = tax.strip(";").split(";")
-                newTax = dict(zip(accRank, ["Incertae_Sedis"]*8))
+                newTax = dict(zip(accRank, ["Incertae sedis"]*8))
                 for i in range(len(taxArr)-1):
                     try:
                         tRank = rank[";".join(taxArr[:i+1])]
@@ -647,13 +661,82 @@ rule creatSilvaIndex:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
 
 rule getRdpLsu:
-    output: "%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config
+    output: "%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, "%(dbFolder)s/releaseREADME.txt" % config
     shell: 
         "cd %(dbFolder)s;" \
-        "wget http://rdp.cme.msu.edu/download/current_Fungi_unaligned.fa.gz"
+        "wget http://rdp.cme.msu.edu/download/current_Fungi_unaligned.fa.gz;" \
+        "rm releaseREADME.txt" \
+        "wget http://rdp.cme.msu.edu/download/releaseREADME.txt" % config
+
+rule unpackRdpLsu:
+    input: gz="%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, version="%(dbFolder)s/releaseREADME.txt" % config
+    output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    run:
+        v=open(input.version).read().strip()
+        if v != config["rdpVersion"]:
+            raise RuntimeError("RDP version on server (%s) is different from the one specified in the config file (%s)." % (v, config["rdpVersion"]))
+        cmd="cd %(dbFolder)s;" \
+        "gunzip current_Fungi_unaligned.fa.gz; " \
+        "mv current_Fungi_unaligned.fa rdp_LSU_%(rdpVersion)s.fasta;" \
+        "touch rdp_LSU_%(rdpVersion)s.fasta" % config
+        shell(cmd)
+
+rule createRdpLsuTax:
+    input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    run:
+        accRank = ["domain", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input[0]), "fasta"):
+                seqIdStr, linStr = rec.description.strip().split("\t")
+                linArr = linStr.split("=", 1)[1].split(";")
+                spec = seqIdStr.split(";", 1)[0].split(" ", 1)[1]
+                newTax = dict(zip(accRank, [None]*8))
+                for i in range(0, len(linArr), 2):
+                    if linArr[i+1] in accRank:
+                        newTax[linArr[i+1]] = linArr[i]
+                newTax["kingdom"] = "Fungi"
+                newTax["domain"] = "Eukaryota"
+                newTax["species"] = spec
+                found=False
+                for rank in accRank[-2::-1]:
+                    if newTax[rank] is None:
+                        if found:
+                            newTax[rank] = "Incertae sedis"
+                        else:
+                            newTax[rank] = "unclassified"
+                    
+                out.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
+
+rule createRdpLsuIndex:
+    input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
+    output: "%(dbFolder)s/rdp_LSU_index.lambda" % config
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+
 
 ####################################################################
 
+def transferOtusInput(wildcards):
+    if wildcards.sample == "all":
+        return ["otus/all_%sotu_repSeq.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
+    else:
+        return ["otus/%s_%sotu_repSeq.pic" % (wildcards.sample, wildcards.ident), "itsx/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
+
+
+rule transferOtus:
+    input: transferOtusInput
+    output: "otus/{sample}_{ident}otus_{marker}.fasta"
+    run:
+        repSeq = pickle.load(open(input[0], "rb"))
+        rep2otu = dict(zip(repSeq.values(), repSeq.keys()))
+        with open(output[0], "w") as out:
+            for rec in SeqIO.parse(open(input[1]), "fasta"):
+                readId = rec.id.split("=", 1)[1].split(";",1)[0]
+                if readId in rep2otu:
+                    rec.id = "%s/%s" % (rep2otu[readId], wildcards.marker)
+                    out.write(rec.format("fasta"))
 
 rule alignToUnite:
     input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
@@ -727,43 +810,19 @@ rule classifyITS:
             pass
 
 rule alignToSilva:
-    input: clu="otus/{sample}_{ident}otus_{m}SU.fasta", db="%(dbFolder)s/silva_{m}SU_index.lambda" % config
-    output: "lambda/{sample}.{ident}otu_{m}SU_vs_SILVA.m8"
-    log: "logs/{sample}_{ident}otu{m}SU_lambda.log"
+    input: clu="otus/{sample}_{ident}otus_SSU.fasta", db="%(dbFolder)s/silva_SSU_index.lambda" % config
+    output: "lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8"
+    log: "logs/{sample}_{ident}otu_SSU_lambda.log"
     threads: 6
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -as F &> {log}" % config
 
-def transferOtusInput(wildcards):
-    if wildcards.sample == "all":
-        return ["otus/all_%sotu_preClusterInfo.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
-    else:
-        return ["otus/%s_%sotu_preClusterInfo.pic" % (wildcards.sample, wildcards.ident), "itsx/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
-
-
-rule transferOtus:
-    input: transferOtusInput
-    output: "otus/{sample}_{ident}otus_{marker}.fasta"
-    run:
-        otu2precluster = pickle.load(open(input[0], "rb"))
-        precluster2otu = {}
-        for otu, pClusterList in otu2precluster.items():
-            for pCluster in pClusterList:
-                precluster2otu[pCluster] = otu
-        with open(output[0], "w") as out:
-            for rec in SeqIO.parse(open(input[1]), "fasta"):
-                readId = rec.id.rsplit("|", 1)[0]
-                if readId in precluster2otu:
-                    rec.id = "%s/%s" % (readId, wildcards.marker)
-                    out.write(rec.format("fasta"))
-
-rule classifySilva:
-    input: otuInfo="otus/{sample}_{ident}otu_preClusterInfo.pic", lam="lambda/{sample}.{ident}otu_{marker}_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
-    output: "taxonomy/{sample}_{ident}otu_{marker}.class.tsv"
+rule classifySSU:
+    input: lam="lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_SSU.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
-    log: "logs/{sample}_{marker}_{ident}otuClass.log", "logs/{sample}_{ident}otu_{marker}tax.log", "logs/{sample}_{ident}otu_{marker}_tiling.log"
+    log: "logs/{sample}_SSU_{ident}otuClass.log", "logs/{sample}_{ident}otu_SSU_tax.log", "logs/{sample}_{ident}otu_SSU_tiling.log"
     run:
-        otu2precluster = pickle.load(open(input.otuInfo, "rb"))
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
@@ -781,24 +840,26 @@ rule classifySilva:
         for line in open(input.lam, encoding="latin-1"):
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
-            readId = qseqid
+            otuId = qseqid.split("/")[0]
             if float(evalue) > params.maxE:
                 evalueFilter += 1
                 continue
             if float(pident) < params.minIdent:
                 identFilter +=1
                 continue
-            if qseqid not in hsp:
-                hsp[qseqid] = {}
-                qLen[qseqid] = int(qlen)
-            if sseqid not in hsp[qseqid]:
-                hsp[qseqid][sseqid] = [(int(qstart), int(qend), float(bitscore))]
+            if otuId not in hsp:
+                hsp[otuId] = {}
+                qLen[otuId] = int(qlen)
+            if sseqid not in hsp[otuId]:
+                hsp[otuId][sseqid] = [(int(qstart), int(qend), float(bitscore))]
                 sLen[sseqid] = int(slen)
             else:
-                hsp[qseqid][sseqid].append((int(qstart), int(qend), float(bitscore)))
-        with open(log[2], "w") as tLog:
-            for qId in hsp.keys():
-                for sId, tHsp in hsp[qId].items():
+                hsp[otuId][sseqid].append((int(qstart), int(qend), float(bitscore)))
+        topPerc = params.topPerc/100.0
+        with open(output[0], "w") as out, open(log[2], "w") as tLog, open(log[1], "w") as logTax:
+            for otuId in hsp.keys():
+                hits = []
+                for sId, tHsp in hsp[otuId].items():
                     if len(tHsp)>1:
                         used = findTiling(tHsp)
                     else:
@@ -809,41 +870,114 @@ rule classifySilva:
                         totalLen += tHsp[i][1] - tHsp[i][0]
                         totalScore += tHsp[i][2]
                     pathStr = ",".join(["%i-%i" % (tHsp[i][0], tHsp[i][1]) for i in used])
-                    tLog.write("%s\t%s\t%i\t%i\t%s\t%f\n" % (qId, sId, len(used), len(tHsp), pathStr, totalScore))
-                    if totalLen/min(qLen[qId], sLen[sId])*100 < params.minCov:
+                    tLog.write("%s\t%s\t%i\t%i\t%s\t%f\n" % (otuId, sId, len(used), len(tHsp), pathStr, totalScore))
+                    if totalLen/min(qLen[otuId], sLen[sId])*100 < params.minCov:
                         covFilter += 1
                         continue
                     linStr = taxDict[sId]
-                    size = int(qId.split(";")[2].split("=")[1])
-                    try:
-                        classifi[qId].append((linStr, totalScore, size))
-                    except KeyError:
-                        classifi[qId]= [(linStr, totalScore, size)]
+                    hits.append((linStr, totalScore/min(qLen[otuId], sLen[sId]), min(qLen[otuId], sLen[sId])))
+                if len(hits) == 0:
+                    lineage = "unknown"
+                else:
+                    sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
+                    cutoff = 0
+                    while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
+                        cutoff += 1
+                    goodHits = [hit[0] for hit in sortedHits[:cutoff]]
+                    for h, scr, mlen in sortedHits[:cutoff]:
+                        logTax.write("%s\t%s\t%f\t%f\n" % (otuId, h, scr, scr*mlen))
+                    lineage = lca(goodHits, params.stringency)
+                out.write("%s\t%s\n" % (otuId, lineage))
         with open(log[0], "w") as logOut:
             logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
             logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
             logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
             logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
-        topPerc = params.topPerc/100.0
-        with open(output[0], "w") as out, open(log[1], "w") as logTax:
-            for otuId, pCluList in otu2precluster.items():
-                hits = []
-                for pClu in pCluList:
-                    hits.extend(classifi.get("%s/%s" % (pClu, wildcards.marker), []))
-                if len(hits) == 0:
-                    logTax.write("%s\tNO HITS\n" % (otuId))
-                    continue
-                sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
-                cutoff = 0
-                while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
-                    cutoff += 1
-                goodHits = [hit[0] for hit in sortedHits[:cutoff]]
-                goodHitsSize = [hit[2] for hit in sortedHits[:cutoff]]
-                for h, scr, sz in sortedHits[:cutoff]:
-                    logTax.write("%s\t%s\t%i\t%f\n" % (otuId, h, sz, scr))
-                lineage = lca(goodHits, params.stringency, sizes=goodHitsSize)
-                out.write("%s\t%s\n" % (otuId, lineage))
 
+rule alignToRdp:
+    input: clu="otus/{sample}_{ident}otus_LSU.fasta", db="%(dbFolder)s/rdp_LSU_index.lambda" % config
+    output: "lambda/{sample}.{ident}otu_LSU_vs_RDP.m8"
+    log: "logs/{sample}_{ident}otuLSU_lambda.log"
+    threads: 6
+    shell:
+        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -as F &> {log}" % config
+
+rule classifyLSU:
+    input: lam="lambda/{sample}.{ident}otu_LSU_vs_RDP.m8", tax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    output: "taxonomy/{sample}_{ident}otu_LSU.class.tsv"
+    params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
+    log: "logs/{sample}_LSU_{ident}otuClass.log", "logs/{sample}_{ident}otu_LSU_tax.log", "logs/{sample}_{ident}otu_LSU_tiling.log"
+    run:
+        taxDict={}
+        for line in open(input.tax):
+            rId, tax = line.strip().split("\t")
+            taxDict[rId] = tax
+        classifi = {}
+        seqLength = {}
+        seqNr = 0
+        total = 0
+        evalueFilter = 0
+        identFilter = 0
+        covFilter = 0
+        hsp = {}
+        sLen = {}
+        qLen = {}
+        for line in open(input.lam, encoding="latin-1"):
+            total +=1
+            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
+            otuId = qseqid.split("/")[0]
+            if float(evalue) > params.maxE:
+                evalueFilter += 1
+                continue
+            if float(pident) < params.minIdent:
+                identFilter +=1
+                continue
+            if otuId not in hsp:
+                hsp[otuId] = {}
+                qLen[otuId] = int(qlen)
+            if sseqid not in hsp[otuId]:
+                hsp[otuId][sseqid] = [(int(qstart), int(qend), float(bitscore))]
+                sLen[sseqid] = int(slen)
+            else:
+                hsp[otuId][sseqid].append((int(qstart), int(qend), float(bitscore)))
+        topPerc = params.topPerc/100.0
+        with open(output[0], "w") as out, open(log[2], "w") as tLog, open(log[1], "w") as logTax:
+            for otuId in hsp.keys():
+                hits = []
+                for sId, tHsp in hsp[otuId].items():
+                    if len(tHsp)>1:
+                        used = findTiling(tHsp)
+                    else:
+                        used = [0]
+                    totalLen = 0
+                    totalScore = 0
+                    for i in used:
+                        totalLen += tHsp[i][1] - tHsp[i][0]
+                        totalScore += tHsp[i][2]
+                    pathStr = ",".join(["%i-%i" % (tHsp[i][0], tHsp[i][1]) for i in used])
+                    tLog.write("%s\t%s\t%i\t%i\t%s\t%f\n" % (otuId, sId, len(used), len(tHsp), pathStr, totalScore))
+                    if totalLen/min(qLen[otuId], sLen[sId])*100 < params.minCov:
+                        covFilter += 1
+                        continue
+                    linStr = taxDict[sId]
+                    hits.append((linStr, totalScore/min(qLen[otuId], sLen[sId]), min(qLen[otuId], sLen[sId])))
+                if len(hits) == 0:
+                    lineage = "unknown"
+                else:
+                    sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
+                    cutoff = 0
+                    while cutoff < len(sortedHits) and sortedHits[cutoff][1] >= (1.0-topPerc)*sortedHits[0][1]:
+                        cutoff += 1
+                    goodHits = [hit[0] for hit in sortedHits[:cutoff]]
+                    for h, scr, mlen in sortedHits[:cutoff]:
+                        logTax.write("%s\t%s\t%f\t%f\n" % (otuId, h, scr, scr*mlen))
+                    lineage = lca(goodHits, params.stringency)
+                out.write("%s\t%s\n" % (otuId, lineage))
+        with open(log[0], "w") as logOut:
+            logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
+            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
+            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
+            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
 
 rule compareCls:
     input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", size="otus/{sample}_{ident}otus.size.tsv"
@@ -873,7 +1007,7 @@ rule compareCls:
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule createOtuTab:
-    input: tax="taxonomy/all_{ident}_comb.class.tsv", otu2pClu="otus/all_{ident}otu_preClusterInfo.pic", sample="preClu2sample.pic"
+    input: tax="taxonomy/all_{ident}_comb.class.tsv", otu2pClu="otus/all_{ident}otu_preClusterInfo.pic", sample="all_preClu2sample.pic"
     output: "otu{ident}_table.tsv"
     run:
         otu2pClu = pickle.load(open(input.otu2pClu, "rb"))
@@ -1009,7 +1143,6 @@ def lca(lineageStrings, stringency=1.0,
         mLineages.append([])
         for entry in mLin:
              mLineages[-1].append(entry.split("(")[0])
-    i=0
     maxLinLen = max([len(m) for m in mLineages])
     active = [True]*len(mLineages)
     for i in range(maxLinLen):

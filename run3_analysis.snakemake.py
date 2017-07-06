@@ -16,6 +16,25 @@ shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution 
 configfile: "config.json"
 
 samples = expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2,3,5,6,7,8])
+isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
+            "SC": ["Lib3-0009", "Lib7-0009"],
+            "CL": ["Lib1-0095", "Lib6-0095"],
+            "EV": ["Lib4-0027", "Lib5-0027"],
+            "PB": ["Lib7-0056", "Lib8-0056"],
+            #"CHY1": [],
+            #"TR": [], 
+            "PC": ["Lib1-0027", "Lib2-0027"],
+            "Csp": ["Lib1-0056", "Lib3-0056"],
+            "Psp": ["Lib7-0095", "Lib8-0095"],
+            #"CR": [],
+            "ME": ["Lib2-0056", "Lib4-0056"],
+            "UM": ["Lib2-0009", "Lib2-0009"],
+            "LS": ["Lib3-0027", "Lib7-0027"],
+            "DT": ["Lib3-0095", "Lib5-0095"],
+            "IF": ["Lib6-0027", "Lib8-0027"],
+            "MR": ["Lib4-0009", "Lib8-0009"]
+            }
+
 #samples = []
 #for lib, bcList in config["samples"].items():
 #    for bc in bcList: 
@@ -34,13 +53,29 @@ include: "readProcessing.snakemake.py"
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: "taxonomy/all_97_comb.class.tsv"
+    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "taxonomy/isolates_97_comb.class.tsv"
 #    input: expand("primers/{sample}_primer.fasta", sample=samples)
 
+rule concatItsxResult:
+    input: expand("itsx/{sample}.{{marker}}.fasta", sample=samples)
+    output: "catItsx/all.{marker}.fasta"
+    shell:
+        "cat {input} > {output}"
+
+def catIsolatesInput(wildcards):
+    return ["itsx/%s.%s.fasta" % (s, wildcards.marker) for s in isolates[wildcards.spec]]
+
+rule concatIsolates:
+        input: catIsolatesInput
+        output:"isolates/{spec}.{marker}.fasta"
+        shell:
+            "cat {input} > {output}"
 
 def otuInput(wildcards):
     if wildcards.sample == "all":
         return "catItsx/all.full.fasta"
+    elif wildcards.sample in isolates:
+        return "isolates/%s.full.fasta" % wildcards.sample
     else:
         return "itsx/%s.full.fasta" % wildcards.sample
 
@@ -55,6 +90,8 @@ rule otuCluster:
 def otuReadsInput(wildcards):
     if wildcards.sample == "all":
         return ["otus/all_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
+    elif wildcards.sample in isolates:
+        return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident)] + expand("preclusters/{sample}_cluInfo.tsv", sample=isolates[wildcards.sample])
     else:
         return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident), "preclusters/all_cluInfo.tsv"]
 
@@ -113,6 +150,8 @@ rule otuReads:
 def transferOtusInput(wildcards):
     if wildcards.sample == "all":
         return ["otus/all_%sotu_repSeq.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
+    elif wildcards.sample in isolates:
+        return ["otus/%s_%sotu_repSeq.pic" % (wildcards.sample, wildcards.ident), "isolates/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
     else:
         return ["otus/%s_%sotu_repSeq.pic" % (wildcards.sample, wildcards.ident), "itsx/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
 
@@ -134,7 +173,7 @@ rule alignToUnite:
     input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
     output: "lambda/{sample}.{ident}otu_vs_UNITE.m8"
     log: "logs/{sample}_{ident}otu_lambda.log"
-    threads: 3
+    threads: 6
     shell:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
@@ -371,7 +410,7 @@ rule classifyLSU:
             logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
             logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
 
-rule compareCls:
+rule combineCls:
     input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", size="otus/{sample}_{ident}otus.size.tsv"
     output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     params: stringency=.90
@@ -461,6 +500,154 @@ rule compareCorrectCls:
                 otuId, size, ssuTax, itsTax, lsuTax  = line.strip().split("\t")
                 corr = corrCls[otuId]
                 out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, size, corr, ssuTax, itsTax, lsuTax))
+
+rule collectClsStats:
+    input: cls="taxonomy/all_97_comb.class.tsv"
+    output: complete="taxonomy/all_97_comb.stats.tsv", fungi="taxonomy/allFungi_97_comb.stats.tsv"
+    run:
+        tab = []
+        for line in open(input.cls):
+            oId, size, ssuCls, itsCls, lsuCls = line.strip().split("\t")
+            tab.append((oId, int(size), ssuCls, itsCls, lsuCls))
+
+        tab.sort(key=lambda x: x[1], reverse=True)
+
+        with open(output.complete, "w") as out, open(output.fungi, "w") as fungiOut:
+            for oId, size, ssuCls, itsCls, lsuCls in tab:
+                ssuDepth = 0
+                if ssuCls == "unknown":
+                    ssuPhyl = "NA"
+                else:
+                    ssuArr = ssuCls.strip(";").split(";")
+                    ssuDepth = len(ssuArr)-1
+                    i=0
+                    while i<len(ssuArr) and ssuArr[i] != "Fungi":
+                        i += 1
+                    if i<len(ssuArr):
+                        try:
+                            ssuPhyl=ssuArr[i+1]
+                        except IndexError:
+                            ssuPhyl="NA"
+                    else:
+                        ssuPhyl="non-fungi"
+                lsuDepth = 0
+                if lsuCls == "unknown":
+                    lsuPhyl = "NA"
+                else:
+                    lsuArr = lsuCls.strip(";").split(";")
+                    lsuDepth=len(lsuArr)-1
+                    i=0
+                    while i<len(lsuArr) and lsuArr[i] != "Fungi":
+                        i += 1
+                    if i<len(lsuArr):
+                        try:
+                            lsuPhyl=lsuArr[i+1]
+                        except IndexError:
+                            lsuPhyl="NA"
+                    else:
+                        lsuPhyl="non-fungi"
+                itsDepth = 0
+                if itsCls == "unknown":
+                    itsPhyl="NA"
+                else:
+                    itsArr = itsCls.strip(";").split(";")
+                    try:
+                        itsPhyl=itsArr[1][3:]
+                        itsDepth = len(itsArr)
+                    except IndexError:
+                        itsPhyl="NA"
+                out.write("%s\t%i\tssu\t%s\t%i\n" % (oId, size, ssuPhyl, ssuDepth))
+                out.write("%s\t%i\tits\t%s\t%i\n" % (oId, size, itsPhyl, itsDepth))
+                out.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, lsuPhyl, lsuDepth))
+                if ssuPhyl != "non-fungi" and lsuPhyl != "non-fungi":
+                    fungiOut.write("%s\t%i\tssu\t%s\t%i\n" % (oId, size, ssuPhyl, ssuDepth))
+                    fungiOut.write("%s\t%i\tits\t%s\t%i\n" % (oId, size, itsPhyl, itsDepth))
+                    fungiOut.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, lsuPhyl, lsuDepth))
+
+rule plotClsComp:
+    input: all="taxonomy/all_97_comb.stats.tsv", fungi="taxonomy/allFungi_97_comb.stats.tsv"
+    output: depth="all_clsComp_depth.svg", depthFungi="all_clsComp_depth_fungi.svg", block="all_clsComp_basic.svg"
+    run:
+        R("""
+        library(reshape2)
+        library(ggplot2)
+
+        d=read.table("{input.all}", sep="\t")
+        colnames(d) = c("oId", "size", "marker", "phylum", "depth")
+
+        d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
+        d$oId=factor(d$oId, levels=unique(d[order(d$size, decreasing=T),]$oId))
+        ggplot(d[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+        ggsave("{output.depth}", width=16, height=10)
+
+
+        f=read.table("{input.fungi}", sep="\t")
+        colnames(f) = c("oId", "size", "marker", "phylum", "depth")
+        f$marker=factor(f$marker, levels=c("ssu", "its", "lsu"))
+        f$oId=factor(f$oId, levels=unique(f[order(f$size, decreasing=T),]$oId))
+        ggplot(f[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+        ggsave("{output.depthFungi}", width=16, height=10)
+
+
+        d$marker=factor(d$marker, levels=c("lsu", "ssu", "its"))
+        ggplot(d[1:600,], aes(x=oId, y=marker, fill=phylum)) + geom_tile() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+        ggsave("{output.block}", width=16, height=10)
+        """)
+
+rule compareCls:
+    input: cls="taxonomy/all_97_comb.class.tsv"
+    output: "all_clsDiff.tsv"
+    run:
+        ranks=["kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        diff = {"ssu_lsu": {}, "ssu_its": {}, "its_lsu":{}}
+        size = {}
+        for line in open(input.cls):
+            oId, tSize, ssuCls, itsCls, lsuCls = line.strip().split("\t")
+            cls = {}
+            if ssuCls == "unknown":
+                cls["ssu"] = None
+            else:
+                cls["ssu"] = ssuCls.split(";")
+            if lsuCls == "unknown":
+                cls["lsu"] = None
+            else:
+                cls["lsu"] = lsuCls.split(";")
+            if itsCls == "unknown":
+                cls["its"] = None
+            else:
+                cls["its"] = ["Eukaryota"] + [c.split("__", 1)[-1] for c in itsCls.split(";")]
+            
+            for mrk1, mrk2 in [("ssu","lsu"), ("ssu", "its"), ("its", "lsu")]:
+                if cls[mrk1] is None or cls[mrk2] is None:
+                    continue
+                for r, rank in enumerate(ranks):
+                    if r >= len(cls[mrk1]) or r >= len(cls[mrk2]):
+                        break
+                    if cls[mrk1][r] != cls[mrk2][r]:
+                        if rank not in diff["%s_%s" % (mrk1, mrk2)]:
+                            diff["%s_%s" % (mrk1, mrk2)][rank] = {}
+                        try:
+                            diff["%s_%s" % (mrk1, mrk2)][rank]["%s<->%s" % (cls[mrk1][r], cls[mrk2][r])].append(oId)
+                        except KeyError:
+                            diff["%s_%s" % (mrk1, mrk2)][rank]["%s<->%s" % (cls[mrk1][r], cls[mrk2][r])] = [oId]
+
+        with open(output[0], "w") as out:
+            for comp in diff.keys():
+                mrk1, mrk2 = comp.split("_")
+                for rank, diffData in diff[comp].items():
+                    for entry, otus in diffData.items():
+                        out.write("%s\t%s\t%s\t%s\t%s\t%i\n" % (comp, mrk1, mrk2, rank, entry, len(otus)))
+
+rule combineIsolateCls:
+    input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())
+    output: "taxonomy/isolates_97_comb.class.tsv"
+    run:
+        with open(output[0], "w") as out:
+            for inputFile in input:
+                spec = inputFile.split("/", 1)[1].split("_", 1)[0]
+                for line in open(inputFile):
+                    out.write("%s\t%s" % (spec, line))
+            
 
 def findTiling(hsp):
     G=nx.DiGraph()

@@ -356,9 +356,3 @@ rule getSampleMapping:
             for rec in SeqIO.parse(open(inputFile), "fasta"):
                 preClu2sample[rec.id] = sample
         pickle.dump(preClu2sample, open(output.sample, "wb"))
-
-rule concatItsxResult:
-    input: expand("itsx/{sample}.{{marker}}.fasta", sample=samples)
-    output: "catItsx/all.{marker}.fasta"
-    shell:
-        "cat {input} > {output}"

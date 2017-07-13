@@ -36,6 +36,9 @@ samples = {"Lib4-0018": "mock",
 #           "Lib8-0027": "IF2",
            "Lib8-0056": "PB2",
            "Lib8-0095": "Psp2",
+           "Lib0-0009": "CHY1",
+           "Lib0-0075": "CR",
+           "Lib0-0056": "TR"
            }
 
 isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
@@ -340,16 +343,59 @@ rule collectFullRef:
     shell:
         "cat {input} > {output}"
 
-rule fullMapping:
-    input: reads="chimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
-    output: m5="mapping/fullMapping/{sample}_vs_isolates.m5"
+rule fullRawMapping:
+    input: reads="raw/{sample}.fastq", ref="fullRef/isolateSeqs.fasta"
+    output: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5"
     threads: 6
     shell: 
         "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
 
+rule fullMapping:
+    input: reads="chimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
+    output: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5"
+    threads: 6
+    shell: 
+        "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
+
+rule getFullRawCls:
+    input: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5", fastq="raw/{sample}.fastq"
+    output: matches="mapping/fullMatches/match_{sample}_raw_isolates.tsv", assign="mapping/assignment/{sample}_raw_assignments.tsv"
+    run:
+        data={}
+
+        for line in open(input.m5):
+            qName, qLength, qStart, qEnd, qStrand, tName, tLength, tStart, tEnd, tStrand, score, numMatch, numMismatch, numIns, numDel, mapQV, qAlignedSeq, matchPattern, tAlignedSeq = [x for x in line.split(" ") if len(x)>0]
+            qcov = (int(qEnd)-int(qStart))/float(qLength)
+            if qcov < 0.9:
+                continue
+            ident = float(numMatch)/(int(qEnd)-int(qStart))
+            spec = tName.split("_")[1]
+            mData = (str(ident), score, str(int(qEnd)-int(qStart)), numMismatch, numIns, numDel)
+            rId = qName.rsplit("/", 1)[0]
+            try:
+                qData = data[rId]
+            except KeyError:
+                data[rId] = {spec: mData}
+            else:
+                if not spec in qData or mData[0] > qData[spec][0]:
+                    qData[spec] = mData
+        with open(output.matches, "w") as out:
+            for rId, entryDict in data.items():
+                for spec, entry in entryDict.items():
+                    out.write("%s\t%s\t%s\n" % (rId, spec, "\t".join(entry)))
+        with open(output.assign, "w") as out:
+            for rec in SeqIO.parse(open(input.fastq), "fastq"):
+                rId = rec.id.rsplit("/", 1)[0]
+                if rId in data:
+                    matchDict = data[rId]
+                    best = sorted(matchDict.items(), key=lambda x: int(x[1][1]))[0]
+                    out.write("%s\t%s\t%s\n" % (rId, best[0], "\t".join(best[1][2:6])))
+                else:
+                    out.write("%s\tUNKNOWN\tNA\tNA\tNA\tNA\n" % rId)
+
 rule getFullCls:
-    input: m5="mapping/fullMapping/{sample}_vs_isolates.m5", chimera="chimeraRef/{sample}.chimeraReport.tsv"
-    output: matches="mapping/fullMatches/match_{sample}_isolates.tsv", assign="mapping/assignment/{sample}_assignments.tsv"
+    input: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5", chimera="chimeraRef/{sample}.chimeraReport.tsv"
+    output: matches="mapping/fullMatches/match_{sample}_filtered_isolates.tsv", assign="mapping/assignment/{sample}_filtered_assignments.tsv"
     run:
         data={}
 
@@ -388,8 +434,8 @@ rule getFullCls:
                     out.write("%s\tUNKNOWN\tNA\tNA\tNA\tNA\n" % rId)
 
 rule collectFullCls:
-    input: expand("mapping/assignment/{sample}_assignments.tsv", sample=samples.keys())
-    output: "mapping/all_assignments.tsv"
+    input: expand("mapping/assignment/{sample}_{{stage}}_assignments.tsv", sample=samples.keys())
+    output: "mapping/all_{stage}_assignments.tsv"
     run:
         with open(output[0], "w") as out:
             for inputFile in input:
@@ -398,8 +444,8 @@ rule collectFullCls:
                     out.write("%s\t%s\t%s" % (sample, samples[sample], line))
 
 rule plotErrorRate:
-    input: "mapping/all_assignments.tsv"
-    output: "mapping/errorRates.svg"
+    input: "mapping/all_{stage}_assignments.tsv"
+    output: "mapping/{stage}ErrorRates.svg"
     run:
         R("""
         library(ggplot2)
@@ -419,8 +465,8 @@ rule plotErrorRate:
         """)
 
 rule plotAssignment:
-    input: "mapping/all_assignments.tsv"
-    output: "mapping/assignments.svg"
+    input: "mapping/all_{stage}_assignments.tsv"
+    output: "mapping/{stage}Assignments.svg"
     run:
         R("""
         library(ggplot2)

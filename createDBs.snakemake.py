@@ -230,3 +230,90 @@ rule createRdpLsuIndex:
     shell:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
 
+rule ssuOverview:
+    input: ssuFasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, ssuTax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
+    output: ssuOut="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_stars.tsv" % config
+    run:
+        ssuSize = {}
+        for rec in SeqIO.parse(open(input.ssuFasta), "fasta"):
+            ssuSize[rec.id] = len(rec)
+        ssuCls = {}
+        for line in open(input.ssuTax):
+            sId, taxStr = line.strip().split("\t")
+            ssuCls[sId] = taxStr.strip(";").split(";")
+        with open(output.ssuOut, "w") as out:
+            for sId, length in ssuSize.items():
+                out.write("%s\t%i\t%s\n" % (sId, length, "\t".join(ssuCls[sId])))
+
+rule itsOverview:
+    input: itsFasta="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, itsTax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
+    output: itsOut="%(dbFolder)s/UNITE_%(uniteVersion)s_stats.tsv" % config
+    run:
+        itsSize = {}
+        for rec in SeqIO.parse(open(input.itsFasta), "fasta"):
+            itsSize[rec.id] = len(rec)
+        itsCls = {}
+        for line in open(input.itsTax):
+            iId, taxStr = line.strip().split("\t")
+            itsCls[iId] = ["Eukaryota"] + [c.split("__", 1)[-1] for c in taxStr.split(";")]
+        with open(output.itsOut, "w") as out:
+            for iId, length in itsSize.items():
+                out.write("%s\t%i\t%s\n" % (iId, length, "\t".join(itsCls[iId])))
+rule lsuOverview:
+    input: lsuFasta="%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config, lsuTax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    output: lsuOut="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_stats.tsv" % config
+    run:
+        lsuSize = {}
+        for rec in SeqIO.parse(open(input.lsuFasta), "fasta"):
+            lsuSize[rec.id] = len(rec)
+        lsuCls = {}
+        for line in open(input.lsuTax):
+            lId, taxStr = line.strip().split("\t")
+            lsuCls[lId] = taxStr.strip(";").split(";")
+        with open(output.lsuOut, "w") as out:
+            for lId, length in lsuSize.items():
+                out.write("%s\t%i\t%s\n" % (lId, length, "\t".join(lsuCls[lId])))
+
+rule dbOverviewPlot:
+    input: ssu="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_stars.tsv" % config, its="%(dbFolder)s/UNITE_%(uniteVersion)s_stats.tsv" % config, lsu="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_stats.tsv" % config
+    output: length="dbOverview_len.pdf", tax="dbOverview_tax.pdf"
+    run:
+        R("""
+        colN = c("id", "len", "domain", "kingdom", "phylum", "class", "order", "family", "genus", "species")
+        library(ggplot2)
+        ssu=read.table("{input.ssu}", sep="\t")
+        colnames(ssu) = colN
+        p1 = ggplot(ssu, aes(x=len)) + geom_histogram(binwidth=1, color="black") + labs(title="Length distribution of SSU data base", x="sequence length", y="count")
+        #p2 = ggplot(ssu, aes(x=len)) + geom_density()
+        
+        its=read.table("{input.its}", sep="\t")
+        colnames(its) = colN
+        p3 = ggplot(its, aes(x=len)) + geom_histogram(binwidth=1, color="black") + labs(title="Length distribution of ITS data base", x="sequence length", y="count")
+        #p4 = ggplot(its, aes(x=len)) + geom_density()
+        
+        lsu=read.table("{input.lsu}", sep="\t")
+        colnames(lsu) = colN
+        p5 = ggplot(lsu, aes(x=len)) + geom_histogram(binwidth=1, color="black") + labs(title="Length distribution of LSU data base", x="sequence length", y="count")
+        #p6 = ggplot(lsu, aes(x=len)) + geom_density()
+        
+        pdf("{output.length}", width=16, height=10)
+        print(p1)
+        #print(p2)
+        print(p3)
+        #print(p4)
+        print(p5)
+        #print(p6)
+        dev.off()
+        
+        ssu$marker="silva (SSU)"
+        its$marker="UNITE (ITS)"
+        lsu$marker="RDP Fungal 28S (LSU)"
+        d=rbind(ssu, its, lsu)
+        d$marker=factor(d$marker, levels=c("silva (SSU)", "UNITE (ITS)", "RDP Fungal 28S (LSU)"))
+        p7 = ggplot(d) + geom_bar(aes(x=marker, fill=domain)) + labs(title="Sequences from different domains in the databases", x="data base")
+        p8 = ggplot(d[d$kingdom=="Fungi",]) + geom_bar(aes(x=marker, fill=phylum)) + labs(title="Sequences from different fungal kingdoms in the databases", x="data base")
+        pdf("{output.tax}", width=16, height=10)
+        print(p7)
+        print(p8)
+        dev.off()
+        """)

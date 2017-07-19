@@ -246,7 +246,7 @@ rule alignToSilva:
     log: "logs/{sample}_{ident}otu_SSU_lambda.log"
     threads: 6
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -as F &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -x 30 -as F &> {log}" % config
 
 rule classifySSU:
     input: lam="lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config
@@ -331,7 +331,7 @@ rule alignToRdp:
     log: "logs/{sample}_{ident}otuLSU_lambda.log"
     threads: 6
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -as F &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -x 40 -as F &> {log}" % config
 
 rule classifyLSU:
     input: lam="lambda/{sample}.{ident}otu_LSU_vs_RDP.m8", tax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
@@ -559,7 +559,7 @@ rule collectClsStats:
                 out.write("%s\t%i\tssu\t%s\t%i\n" % (oId, size, ssuPhyl, ssuDepth))
                 out.write("%s\t%i\tits\t%s\t%i\n" % (oId, size, itsPhyl, itsDepth))
                 out.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, lsuPhyl, lsuDepth))
-                if ssuPhyl != "non-fungi" and lsuPhyl != "non-fungi":
+                if ssuDepth>0 and ssuPhyl != "non-fungi":
                     fungiOut.write("%s\t%i\tssu\t%s\t%i\n" % (oId, size, ssuPhyl, ssuDepth))
                     fungiOut.write("%s\t%i\tits\t%s\t%i\n" % (oId, size, itsPhyl, itsDepth))
                     fungiOut.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, lsuPhyl, lsuDepth))
@@ -577,46 +577,89 @@ rule plotClsComp:
 
         d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
         d$oId=factor(d$oId, levels=unique(d[order(d$size, decreasing=T),]$oId))
-        ggplot(d[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+        ggplot(d[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)) 
         ggsave("{output.depth}", width=16, height=10)
 
 
         f=read.table("{input.fungi}", sep="\t")
         colnames(f) = c("oId", "size", "marker", "phylum", "depth")
         f$marker=factor(f$marker, levels=c("ssu", "its", "lsu"))
-        f$oId=factor(f$oId, levels=unique(f[order(f$size, decreasing=T),]$oId))
-        ggplot(f[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+        
+        f$oId=factor(f$oId, levels=unique(f[order(f$marker, f$phylum, f$depth),]$oId))
+        ggplot(f[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5, size=6))
         ggsave("{output.depthFungi}", width=16, height=10)
 
 
         d$marker=factor(d$marker, levels=c("lsu", "ssu", "its"))
-        ggplot(d[1:600,], aes(x=oId, y=marker, fill=phylum)) + geom_tile() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+        ggplot(d[1:600,], aes(x=oId, y=marker, fill=phylum)) + geom_tile() + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5))
         ggsave("{output.block}", width=16, height=10)
+        """)
+
+rule plotDephtOverview:
+    input: "taxonomy/all_97_comb.stats.tsv"
+    output: "classificationDepth.svg"
+    params: minSize=5
+    run:
+        R("""
+        library(ggplot2)
+        
+        d=read.table("{input}", sep="\t")
+        colnames(d) = c("oId", "size", "marker", "phylum", "depth")
+        d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
+        
+        ggplot(d[d$size>={params.minSize},]) + geom_bar(aes(factor(depth), weight=size)) + facet_grid(.~marker) + scale_x_discrete(labels=c("NA", "kingdom", "phylum", "class", "order", "family", "genus", "species")) + coord_flip() + labs(y="read count", x="classfied to") + theme_bw()
+        ggsave("{output}", width=16, height=10)
         """)
 
 rule compareCls:
     input: cls="taxonomy/all_97_comb.class.tsv"
-    output: "all_clsDiff.tsv"
+    output: diff="all_clsDiff.tsv", comp="all_clsComp.tsv"
     run:
         ranks=["kingdom", "phylum", "class", "order", "family", "genus", "species"]
         diff = {"ssu_lsu": {}, "ssu_its": {}, "its_lsu":{}}
         size = {}
+        allCls = {}
+        com = {}
         for line in open(input.cls):
             oId, tSize, ssuCls, itsCls, lsuCls = line.strip().split("\t")
             cls = {}
+            maxLen=0
             if ssuCls == "unknown":
                 cls["ssu"] = None
             else:
                 cls["ssu"] = ssuCls.split(";")
+                if len(cls["ssu"]) > maxLen:
+                    maxLen=len(cls["ssu"])
             if lsuCls == "unknown":
                 cls["lsu"] = None
             else:
                 cls["lsu"] = lsuCls.split(";")
+                if len(cls["lsu"]) > maxLen:
+                    maxLen=len(cls["lsu"])
             if itsCls == "unknown":
                 cls["its"] = None
             else:
                 cls["its"] = ["Eukaryota"] + [c.split("__", 1)[-1] for c in itsCls.split(";")]
+                if len(cls["its"]) > maxLen:
+                    maxLen=len(cls["its"])
+            allCls[oId] = cls
+            com[oId] = []
             
+            for lvl in range(maxLen):
+                tCls = [None, None, None]
+                if not cls["ssu"] is None and len(cls["ssu"]) > lvl:
+                    tCls[0] = cls["ssu"][lvl]
+                if not cls["its"] is None and len(cls["its"]) > lvl:
+                    tCls[1] = cls["its"][lvl]
+                if not cls["lsu"] is None and len(cls["lsu"]) > lvl:
+                    tCls[2] = cls["lsu"][lvl]
+                if not tCls[0] is None and (tCls[0] == tCls[1] or tCls[0] == tCls[2]):
+                    com[oId].append(tCls[0])
+                elif not tCls[1] is None and tCls[1] == tCls[2]:
+                    com[oId].append(tCls[1])
+                else:
+                    com[oId].append(None)
+                
             for mrk1, mrk2 in [("ssu","lsu"), ("ssu", "its"), ("its", "lsu")]:
                 if cls[mrk1] is None or cls[mrk2] is None:
                     continue
@@ -631,12 +674,31 @@ rule compareCls:
                         except KeyError:
                             diff["%s_%s" % (mrk1, mrk2)][rank]["%s<->%s" % (cls[mrk1][r], cls[mrk2][r])] = [oId]
 
-        with open(output[0], "w") as out:
+        with open(output.diff, "w") as out:
             for comp in diff.keys():
                 mrk1, mrk2 = comp.split("_")
                 for rank, diffData in diff[comp].items():
                     for entry, otus in diffData.items():
                         out.write("%s\t%s\t%s\t%s\t%s\t%i\n" % (comp, mrk1, mrk2, rank, entry, len(otus)))
+        with open(output.comp, "w") as out:
+            for oId in com.keys():
+                out.write("%s\t%s;" % (oId, ";".join([str(c) for c in com[oId]])))
+                for marker in ["ssu", "its", "lsu"]:
+                    out.write("\t")
+                    cls = allCls[oId][marker]
+                    if cls is None:
+                        out.write("NA;")
+                    else:
+                        for r in range(len(cls)):
+                            if r < len(com[oId]):
+                                if cls[r] != com[oId][r]:
+                                    out.write("%s;" % cls[r])
+                                else:
+                                    out.write("--;")
+                            else:
+                                out.write("%s;" % cls[r])
+                out.write("\n")
+                
 
 rule combineIsolateCls:
     input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())

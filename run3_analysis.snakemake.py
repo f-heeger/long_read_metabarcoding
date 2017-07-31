@@ -16,6 +16,7 @@ shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution 
 configfile: "config.json"
 
 samples = expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2,3,5,6,7,8])
+stechlin = ["Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"]
 isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
             "SC": ["Lib3-0009", "Lib7-0009"],
             "CL": ["Lib1-0095", "Lib6-0095"],
@@ -62,6 +63,12 @@ rule concatItsxResult:
     shell:
         "cat {input} > {output}"
 
+rule concatStechlin:
+    input: expand("itsx/{sample}.{{marker}}.fasta", sample=stechlin)
+    output: "catItsx/stechlin.{marker}.fasta"
+    shell:
+        "cat {input} > {output}"
+
 def catIsolatesInput(wildcards):
     return ["itsx/%s.%s.fasta" % (s, wildcards.marker) for s in isolates[wildcards.spec]]
 
@@ -74,6 +81,8 @@ rule concatIsolates:
 def otuInput(wildcards):
     if wildcards.sample == "all":
         return "catItsx/all.full.fasta"
+    elif wildcards.sample == "stechlin":
+        return "catItsx/stechlin.full.fasta"
     elif wildcards.sample in isolates:
         return "isolates/%s.full.fasta" % wildcards.sample
     else:
@@ -90,6 +99,8 @@ rule otuCluster:
 def otuReadsInput(wildcards):
     if wildcards.sample == "all":
         return ["otus/all_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
+    elif wildcards.sample == "stechlin":
+        return ["otus/stechlin_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=stechlin)
     elif wildcards.sample in isolates:
         return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident)] + expand("preclusters/{sample}_cluInfo.tsv", sample=isolates[wildcards.sample])
     else:
@@ -150,6 +161,8 @@ rule otuReads:
 def transferOtusInput(wildcards):
     if wildcards.sample == "all":
         return ["otus/all_%sotu_repSeq.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
+    elif wildcards.sample == "stechlin":
+        return ["otus/stechlin_%sotu_repSeq.pic" % wildcards.ident, "catItsx/stechlin.%s.fasta" % wildcards.marker]
     elif wildcards.sample in isolates:
         return ["otus/%s_%sotu_repSeq.pic" % (wildcards.sample, wildcards.ident), "isolates/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
     else:
@@ -413,7 +426,6 @@ rule classifyLSU:
 rule combineCls:
     input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", size="otus/{sample}_{ident}otus.size.tsv"
     output: "taxonomy/{sample}_{ident}_comb.class.tsv"
-    params: stringency=.90
     run:
         ssu = {}
         for line in open(input.ssu):
@@ -438,8 +450,8 @@ rule combineCls:
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule createOtuTab:
-    input: tax="taxonomy/all_{ident}_comb.class.tsv", otu2pClu="otus/all_{ident}otu_preClusterInfo.pic", sample="all_preClu2sample.pic"
-    output: "otu{ident}_table.tsv"
+    input: tax="taxonomy/{sampleSet}_{ident}_comb.class.tsv", otu2pClu="otus/{sampleSet}_{ident}otu_preClusterInfo.pic", sample="{sampleSet}_preClu2sample.pic"
+    output: "{sampleSet}_otu{ident}_table.tsv"
     run:
         otu2pClu = pickle.load(open(input.otu2pClu, "rb"))
         pCluSample = pickle.load(open(input.sample, "rb"))
@@ -502,8 +514,8 @@ rule compareCorrectCls:
                 out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, size, corr, ssuTax, itsTax, lsuTax))
 
 rule collectClsStats:
-    input: cls="taxonomy/all_97_comb.class.tsv"
-    output: complete="taxonomy/all_97_comb.stats.tsv", fungi="taxonomy/allFungi_97_comb.stats.tsv"
+    input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
+    output: complete="taxonomy/{sampleSet}_97_comb.stats.tsv", fungi="taxonomy/{sampleSet}Fungi_97_comb.stats.tsv"
     run:
         tab = []
         for line in open(input.cls):
@@ -565,8 +577,8 @@ rule collectClsStats:
                     fungiOut.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, lsuPhyl, lsuDepth))
 
 rule plotClsComp:
-    input: all="taxonomy/all_97_comb.stats.tsv", fungi="taxonomy/allFungi_97_comb.stats.tsv"
-    output: depth="all_clsComp_depth.svg", depthFungi="all_clsComp_depth_fungi.svg", block="all_clsComp_basic.svg"
+    input: all="taxonomy/{sampleSet}_97_comb.stats.tsv", fungi="taxonomy/{sampleSet}Fungi_97_comb.stats.tsv"
+    output: depth="{sampleSet}_clsComp_depth.svg", depthFungi="{sampleSet}_clsComp_depth_fungi.svg", block="{sampleSet}_clsComp_basic.svg"
     run:
         R("""
         library(reshape2)

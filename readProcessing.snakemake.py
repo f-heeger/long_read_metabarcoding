@@ -345,10 +345,15 @@ rule itsx:
     shell:
         "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
+def sampleMappingInput(wildcards):
+    if wildcards.sampleSet == "stechlin":
+        return expand("itsx/{sampleSet}.full.fasta", sampleSet=stechlin)
+    else:
+        return expand("itsx/{sampleSet}.full.fasta", sampleSet=samples)
 
 rule getSampleMapping:
-    input: expand("itsx/{sample}.full.fasta", sample=samples)
-    output: sample="{sample}_preClu2sample.pic"
+    input: sampleMappingInput
+    output: sample="{sampleSet}_preClu2sample.pic"
     run:
         preClu2sample = {}
         for inputFile in input:

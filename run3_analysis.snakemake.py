@@ -259,7 +259,7 @@ rule alignToSilva:
     log: "logs/{sample}_{ident}otu_SSU_lambda.log"
     threads: 6
     shell:
-        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -x 30 -as F &> {log}" % config
+        "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 20000 -p blastn -t {threads} -b -2 -x 30 -as F &> {log}" % config
 
 rule classifySSU:
     input: lam="lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config

@@ -1052,19 +1052,6 @@ def fastaConsensus(inFasta, warn=0.75, log=sys.stderr):
             cons.append(most[0])
     return "".join(cons)
 
-def homopoly(kmer):
-    last=None
-    rv=1
-    h=1
-    for j in range(len(kmer)):
-        if kmer[j] == last:
-            h +=1
-        else:
-            rv=max(rv, h)
-            h=1
-            last = kmer[j]
-    return(max(rv, h))
-
 #def samConsensus(inSam, warn=0.75, log=sys.stderr):
 #    prof = []
 #    for line in inSam:

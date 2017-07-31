@@ -361,3 +361,16 @@ rule getSampleMapping:
             for rec in SeqIO.parse(open(inputFile), "fasta"):
                 preClu2sample[rec.id] = sample
         pickle.dump(preClu2sample, open(output.sample, "wb"))
+
+def homopoly(kmer):
+    last=None
+    rv=1
+    h=1
+    for j in range(len(kmer)):
+        if kmer[j] == last:
+            h +=1
+        else:
+            rv=max(rv, h)
+            h=1
+            last = kmer[j]
+    return(max(rv, h))

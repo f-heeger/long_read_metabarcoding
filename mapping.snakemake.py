@@ -1,5 +1,8 @@
 from snakemake.utils import min_version, R
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
 
 min_version("3.5.4")
 
@@ -38,7 +41,14 @@ samples = {"Lib4-0018": "mock",
            "Lib8-0095": "Psp2",
            "Lib0-0009": "CHY1",
            "Lib0-0075": "CR",
-           "Lib0-0056": "TR"
+           "Lib0-0056": "TR",
+           "Run2-0009": "mock_em",
+           "Run2-0018": "mock_c13i8",
+           "Run2-0027": "mock_c15i8",
+           "Run2-0056": "mock_c18i8",
+           "Run2-0075": "mock_c25i8",
+           "Run2-0095": "mock_c18i2",
+           "Run2-0034": "mock_c18i20"
            }
 
 isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
@@ -61,6 +71,8 @@ isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
             }
 
 ref = ["LSU", "SSU", "ITS"]
+
+include: "readProcessing.snakemake.py"
 
 rule mapping:
     input: reads="primers/{sample}_primer.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
@@ -343,6 +355,34 @@ rule collectFullRef:
     shell:
         "cat {input} > {output}"
 
+rule fullRefITSx:
+    input: "fullRef/isolateSeqs.fasta"
+    output: "fullRef/itsx/isolateSeqs.SSU.fasta", "fullRef/itsx/isolateSeqs.ITS1.fasta", "fullRef/itsx/isolateSeqs.5_8S.fasta", "fullRef/itsx/isolateSeqs.ITS2.fasta", "fullRef/itsx/isolateSeqs.LSU.fasta", "fullRef/itsx/isolateSeqs.summary.txt", "fullRef/itsx/isolateSeqs.positions.txt", "fullRef/itsx/isolateSeqs.full.fasta"
+    threads: 6
+    log: "fullRef/logs/isolateSeq_itsx.log"
+    shell:
+        "%(itsx)s -t . -i {input} -o fullRef/itsx/isolateSeqs --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
+
+rule createFullRefAnnoation:
+    input: pos="fullRef/itsx/isolateSeqs.positions.txt"
+    output: anno="fullRef/isolateSeqs.gff3"
+    run:
+        typeDict = {"LSU": "large_subunit_rRNA",
+                    "SSU": "small_subunit_rRNA",
+                    "5.8S": "rRNA_5_8S"}
+                    
+        with open(output.anno, "w") as out:
+            for l, line in enumerate(open(input.pos)):
+                seqid, lenStr, regions = line.strip().split("\t", 2)
+                for regStr in regions.split("\t"):
+                    nameStr, rangeStr = regStr.split(": ")
+                    start, end = rangeStr.split("-")
+                    name = nameStr.strip(":")
+                    
+                    if name in typeDict:
+                        #seqid, source, type, start, end, score, strand, phase, attr
+                        out.write("%s\tITSx\t%s\t%s\t%s\t.\t+\t.\t%s\n" % (seqid, typeDict[name], start, end, "ID=%i;Name=%s" % (l, name)))
+
 rule fullRawMapping:
     input: reads="raw/{sample}.fastq", ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5"
@@ -466,7 +506,7 @@ rule plotErrorRate:
 
 rule plotAssignment:
     input: "mapping/all_{stage}_assignments.tsv"
-    output: "mapping/{stage}Assignments.svg"
+    output: ass="mapping/{stage}Assignments.svg", occ="mapping/{stage}Occurence.svg", mock="mapping/{stage}MockComp.svg"
     run:
         R("""
         library(ggplot2)
@@ -477,6 +517,13 @@ rule plotAssignment:
         
         mycols = adjustcolor(rainbow(16), red.f = 0.7, blue.f = 0.7, green.f = 0.7)
         mycols = c("grey", "black", mycols)
-        ggplot(d) + geom_bar(aes(x=sampleName, fill=cls)) +scale_fill_manual(values=mycols) + labs(x="sample", y="read number", fill="classification") + theme_bw()
-        ggsave("{output}", width=16, height=10)
+        ggplot(d) + geom_bar(aes(x=sampleName, fill=cls)) +scale_fill_manual(values=mycols) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggsave("{output.ass}", width=16, height=10)
+        
+        a=aggregate(readID~cls+sampleName, d, length)
+        ggplot(a) + geom_tile(aes(sampleName, cls, fill=log10(readID))) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(x="sample", y="classification", fill="log10(read number)") + theme_bw()
+        ggsave("{output.occ}", width=16, height=10)
+        
+        ggplot(subset(d, sampleName %in% c("mock", "mock_em", "mock_c13i8", "mock_c15i8", "mock_c18i8", "mock_c25i8", "mock_c18i2", "mock_c18i20"))) + geom_bar(aes(x=sampleName, fill=cls), position="fill") +scale_fill_manual(values=mycols, drop=F) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggsave("{output.mock}", width=16, height=10)
         """)

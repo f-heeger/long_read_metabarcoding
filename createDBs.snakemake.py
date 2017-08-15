@@ -213,6 +213,11 @@ rule createRdpLsuTax:
                 newTax["kingdom"] = "Fungi"
                 newTax["domain"] = "Eukaryota"
                 newTax["species"] = spec
+                #########################################
+                #work arounds for wired cases
+#                if spec == "Rhizophlyctis rosea":
+#                    newTax = {"kingdom": "Fungi", "domain": "Eukaryota", "pyhlum": "Chytridiomycota", "class": "Chytridiomycetes", "order": "Spizellomycetales", "family": "Spizellomycetaceae", "genus": "Rhizophlyctis"}
+                #########################################
                 found=False
                 for rank in accRank[-2::-1]:
                     if newTax[rank] is None:
@@ -319,3 +324,98 @@ rule dbOverviewPlot:
         print(p9)
         dev.off()
         """)
+        
+rule taxComp:
+    input: ssu="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config, its="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config, lsu="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    output: "dbMissingGroups.tsv"
+    run:
+        ssuCls = {}
+        for line in open(input.ssu):
+            sId, taxStr = line.strip().split("\t")
+            t_ssuCls = taxStr.strip(";").split(";")
+            cur = ssuCls
+            for entry in t_ssuCls:
+                try:
+                    cur = cur[entry]
+                except KeyError:
+                    cur[entry] = {}
+                    cur = cur[entry]
+        itsCls = {}
+        for line in open(input.its):
+            iId, taxStr = line.strip().split("\t")
+            t_itsCls = ["Eukaryota"] + [c.split("__", 1)[-1] for c in taxStr.split(";")]
+            cur = itsCls
+            for entry in t_itsCls:
+                try:
+                    cur = cur[entry]
+                except KeyError:
+                    cur[entry] = {}
+                    cur = cur[entry]
+        lsuCls = {}
+        for line in open(input.lsu):
+            lId, taxStr = line.strip().split("\t")
+            t_lsuCls = taxStr.strip(";").split(";")
+            cur = lsuCls
+            for entry in t_lsuCls:
+                try:
+                    cur = cur[entry]
+                except KeyError:
+                    cur[entry] = {}
+                    cur = cur[entry]
+        tax = {"ssu": ssuCls, "its": itsCls, "lsu": lsuCls}
+        miss = {}
+        #SSU
+        for line in open(input.ssu):
+            sId, taxStr = line.strip().split("\t")
+            t_ssuCls = taxStr.strip(";").split(";")
+            if t_ssuCls[1] != "Fungi":
+                continue
+            for mrk1, mrk2 in [("ssu","lsu"), ("ssu", "its")]:
+                cur = tax[mrk2]
+                for r, sEntry in enumerate(t_ssuCls):
+                    try:
+                        cur = cur[sEntry]
+                    except KeyError:
+                        break
+                try:
+                    miss[(mrk1, mrk2, sEntry, str(r), t_ssuCls[2])].append(sId)
+                except KeyError:
+                    miss[(mrk1, mrk2, sEntry, str(r), t_ssuCls[2])] = [sId]
+        #ITS
+        for line in open(input.its):
+            iId, taxStr = line.strip().split("\t")
+            t_itsCls = ["Eukaryota"] + [c.split("__", 1)[-1] for c in taxStr.split(";")]
+            if t_itsCls[1] != "Fungi":
+                continue
+            for mrk1, mrk2 in [("its", "ssu"), ("its", "lsu")]:
+                cur = tax[mrk2]
+                for r, iEntry in enumerate(t_itsCls):
+                    try:
+                        cur = cur[iEntry]
+                    except KeyError:
+                        break
+                try:
+                    miss[(mrk1, mrk2, iEntry, str(r), t_itsCls[2])].append(iId)
+                except KeyError:
+                    miss[(mrk1, mrk2, iEntry, str(r), t_itsCls[2])] = [iId]
+
+        #LSU
+        for line in open(input.lsu):
+            lId, taxStr = line.strip().split("\t")
+            t_lsuCls = taxStr.strip(";").split(";")
+            if t_lsuCls[1] != "Fungi":
+                continue
+            for mrk1, mrk2 in [("lsu", "ssu"), ("lsu", "its")]:
+                cur = tax[mrk2]
+                for r, lEntry in enumerate(t_lsuCls):
+                    try:
+                        cur = cur[lEntry]
+                    except KeyError:
+                        break
+                try:
+                    miss[(mrk1, mrk2, lEntry, str(r), t_lsuCls[2])].append(lId)
+                except KeyError:
+                    miss[(mrk1, mrk2, lEntry, str(r), t_lsuCls[2])] = [lId]
+        with open(output[0], "w") as out:
+            for key, value in miss.items():
+                out.write("%s\t%i\n" % ("\t".join(key), len(value)))

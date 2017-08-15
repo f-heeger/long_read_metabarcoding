@@ -1,4 +1,5 @@
 import pickle
+import math
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -101,7 +102,7 @@ rule indiCluReads:
 rule indiCluOverlap:
     input: ssu="mock/indiCluster/{sample}_SSU_cluInfo.pic", its1="mock/indiCluster/{sample}_ITS1_cluInfo.pic", r58s="mock/indiCluster/{sample}_58S_cluInfo.pic", its2="mock/indiCluster/{sample}_ITS2_cluInfo.pic", lsu="mock/indiCluster/{sample}_LSU_cluInfo.pic"
     output: nodes="mock/clusterGraph/{sample}_clusterGraphNodes.tsv", edges="mock/clusterGraph/{sample}_clusterGraphEdges.tsv"
-    params: minCluSize=2, minCluOverlap=2
+    params: minCluSize=3, minCluOverlap=3
     run:
         ssu=pickle.load(open(input.ssu, "rb"))
         its1=pickle.load(open(input.its1, "rb"))
@@ -114,9 +115,9 @@ rule indiCluOverlap:
                     if len(reads) >= params.minCluSize:
                         nodes[cId] = reads
         with open(output.nodes, "w") as out:
-            out.write("cluster\ttype\tsize\n")
+            out.write("cluster\ttype\tsize\tlogSize\n")
             for cId, reads in nodes.items():
-                out.write("%s\t%s\t%i\n" % (cId, cId.split("|")[2], len(reads)))
+                out.write("%s\t%s\t%i\t%f\n" % (cId, cId.split("|")[2], len(reads), math.log(len(reads), 2)))
                     
         edges = []
         for start, end in [(ssu, its1), (its1, r58s), (r58s, its2), (its2, lsu)]:
@@ -135,22 +136,27 @@ rule indiCluOverlap:
                 out.write("%s\t%s\t%i\n" % e)
 
 rule findComponents:
-    input: edges="mock/clusterGraph/{sample}_clusterGraphEdges.tsv"
+    input: edges="mock/clusterGraph/{sample}_clusterGraphEdges.tsv", nodes="mock/clusterGraph/{sample}_clusterGraphNodes.tsv"
     output: comp="mock/clusterGraph/{sample}_components.txt"
     run:
         G=nx.Graph()
-        with open(input.edges) as inStream:
-            _ = next(inStream) # header
-            for line in inStream:
+        with open(input.nodes) as nodeStream:
+            _ = next(nodeStream) # header
+            for line in nodeStream:
+                nId, _ = line.strip().split("\t", 1)
+                G.add_node(nId)
+        with open(input.edges) as edgeStream:
+            _ = next(edgeStream) # header
+            for line in edgeStream:
                 start, end, weight = line.strip().split("\t")
                 G.add_edge(start, end)
-            with open(output.comp, "w") as out:
-                for comp in nx.connected_components(G):
-                    out.write("\t".join(comp)+"\n")
+        with open(output.comp, "w") as out:
+            for comp in nx.connected_components(G):
+                out.write("\t".join(comp)+"\n")
 
 rule indiCluClass:
-    input: ssu="mock/indiCluster/{sample}_SSU_cluInfo.pic", its1="mock/indiCluster/{sample}_ITS1_cluInfo.pic", r58s="mock/indiCluster/{sample}_58S_cluInfo.pic", its2="mock/indiCluster/{sample}_ITS2_cluInfo.pic", lsu="mock/indiCluster/{sample}_LSU_cluInfo.pic", cls="mapping/assignment/{sample}_assignments.tsv", comp="mock/clusterGraph/{sample}_components.txt"
-    output: tab="mock/clusterGraph/{sample}_components_class.tsv", lab="mock/clusterGraph/{sample}_clusterGraphCls.tsv"
+    input: ssu="mock/indiCluster/{sample}_SSU_cluInfo.pic", its1="mock/indiCluster/{sample}_ITS1_cluInfo.pic", r58s="mock/indiCluster/{sample}_58S_cluInfo.pic", its2="mock/indiCluster/{sample}_ITS2_cluInfo.pic", lsu="mock/indiCluster/{sample}_LSU_cluInfo.pic", cls="mapping/assignment/{sample}_filtered_assignments.tsv", comp="mock/clusterGraph/{sample}_components.txt"
+    output: tab="mock/clusterGraph/{sample}_components_class.tsv", lab="mock/clusterGraph/{sample}_clusterGraphClsLab.tsv", cls="mock/clusterGraph/{sample}_clusterGraphCls.tsv"
     run:
         reads = {
         "SSU": pickle.load(open(input.ssu, "rb")),
@@ -160,11 +166,15 @@ rule indiCluClass:
         "LSU": pickle.load(open(input.lsu, "rb"))
         }
         readCls = {}
+        uCls = set([])
         for line in open(input.cls):
-            read, cls = line.strip().split("\t")
+            read, cls = line.strip().split("\t")[:2]
             readCls[read] = cls
-        with open(output.tab, "w") as out, open(output.lab, "w") as labOut:
+            uCls.add(cls)
+        clsOrder = list(uCls)
+        with open(output.tab, "w") as out, open(output.lab, "w") as labOut, open(output.cls, "w") as clsOut:
             labOut.write("nodeName\tclassification\n")
+            clsOut.write("nodeName\t%s\n" % "\t".join(clsOrder))
             for cNr, line in enumerate(open(input.comp)):
                 comp = line.strip().split("\t")
                 for clu in comp:
@@ -179,6 +189,7 @@ rule indiCluClass:
                     for cls, count in cluCls.items():
                         out.write("Comp%i\t%s\t%s\t%s\t%i\n" % (cNr, marker, clu, cls, count))
                     labOut.write("%s\t%s\n" % (clu, "+".join(["%s(%i)" % i for i in cluCls.items()])))
+                    clsOut.write("%s\t%s\n" % (clu, "\t".join([str(cluCls.get(c, 0)) for c in clsOrder])))
 
 rule componentAlign:
     input: comp="mock/clusterGraph/{sample}_components.txt", fasta="mock/itsx/{sample}.{marker}.fasta", info="mock/indiCluster/{sample}_{marker}_cluInfo.pic"

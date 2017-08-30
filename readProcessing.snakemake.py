@@ -172,7 +172,7 @@ rule fastq2fasta:
                 out.write(read.format("fasta"))
 
 rule readNumbers_raw:
-    input: raw=expand("raw/{sample}.fastq", sample=samples)
+    input: raw=expand("raw/{sample}.fastq", sample=allSamples)
     output: "readNumbers/rawReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -190,7 +190,7 @@ rule readNumbers_raw:
                 sample = rawFileName.rsplit("/", 1)[-1].split(".")[0]
                 out.write("raw\t%s\t%i\n" % (sample, i))
 rule readNumbers_maxLen:
-    input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=samples)
+    input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=allSamples)
     output: "readNumbers/lenReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -209,7 +209,7 @@ rule readNumbers_maxLen:
                 out.write("lenFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_qual:
-    input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=samples)
+    input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=allSamples)
     output: "readNumbers/qualReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -228,7 +228,7 @@ rule readNumbers_qual:
                 out.write("qualFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_winQual:
-    input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=samples)
+    input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=allSamples)
     output: "readNumbers/winQualReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -247,7 +247,7 @@ rule readNumbers_winQual:
                 out.write("winQualFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_primer:
-    input: primer=expand("primers/{sample}_primer.fastq", sample=samples)
+    input: primer=expand("primers/{sample}_primer.fastq", sample=allSamples)
     output: "readNumbers/primerReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -268,21 +268,84 @@ rule readNumbers_primer:
 rule catReadNumber:
     input: "readNumbers/rawReadNumbers.tsv", "readNumbers/lenReadNumbers.tsv", "readNumbers/qualReadNumbers.tsv", "readNumbers/winQualReadNumbers.tsv", "readNumbers/primerReadNumbers.tsv"
     output: "readNumbers/readNumbers.tsv"
-    shell: 
-        "cat {input} > {output}"
-        
+    run:
+        with open(output[0], "w") as out:
+            for inFile in input:
+                for line in open(inFile):
+                    stage, sample, number = line.strip().split("\t")
+                    lib, bc = sample.split("-")
+                    out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (stage, sample, sampleName[sample], number, lib, bc))
 
 rule plotReadNumber:
     input: "readNumbers/readNumbers.tsv"
-    output: "readNumbers.pdf"
+    output: graph="readNumbers.svg", tab="readNumbersTab.tsv"
     run:
         R("""
         library(ggplot2)
+        library(reshape2)
+
+        collectData <- function (set, setname, a_total, a_rel) {{
+            set$prop=NA
+
+            for (tSample in unique(set$sample)) {{
+                for (stage in c("lenFilter", "qualFilter", "winQualFilter", "primerFilter")) {{
+                    set[set$sample==tSample & set$stage==stage,]$prop = set[set$sample==tSample & set$stage==stage,]$number/set[set$sample==tSample & set$stage=="raw",]$number
+                }}
+                set[set$sample==tSample & set$stage=="raw",]$prop = 1.0
+            }}
+
+            new = aggregate(prop~stage, set, mean)
+            colnames(new) = c("stage", "mean")
+            new$sd=aggregate(prop~stage, set, sd)$prop
+            new$group=setname
+            a_rel=rbind(a_rel, new)
+
+
+            new = aggregate(number~stage, set, mean)
+            colnames(new) = c("stage", "mean")
+            new$sd=aggregate(number~stage, set, sd)$number
+            new$group=setname
+            a_total=rbind(a_total, new)
+            return(list(a_total, a_rel))
+        }}
+
         d=read.table("{input}")
-        colnames(d) = c("stage", "sample", "number")
+        colnames(d) = c("stage", "sample", "sampleName", "number", "lib", "bc")
+
         d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
-        ggplot(d)+geom_bar(aes(x=sample, y=number, fill=stage), stat="identity", position="dodge") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-        ggsave("{output}", width=16, height=10)
+
+        d$group=NA
+        d[d$sample %in% c("Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
+        d[d$sample=="Lib4-0018" | d$lib=="Run2",]$group="mock_community"
+        d[d$lib=="Lib0" | (d$lib!="Run2" & d$bc %in% c(9, 27, 56, 95)),]$group="isolate"
+
+        at=numeric(0)
+        ar=numeric(0)
+
+        env=subset(d, group=="stechlin")
+        rv=collectData(env, "stechlin", at, ar)
+        at=rv[[1]]
+        ar=rv[[2]]
+
+
+        moc=subset(d, group=="mock_community")
+        rv=collectData(moc, "mock community", at, ar)
+        at=rv[[1]]
+        ar=rv[[2]]
+
+        iso=subset(d, group=="isolate")
+        rv=collectData(iso, "isolate samples", at, ar)
+        at=rv[[1]]
+        ar=rv[[2]]
+
+
+        #ggplot(subset(ar, stage!="raw"), aes(x=stage, y=mean, fill=group)) + geom_bar(stat="identity", position="dodge") + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(.9)) + labs(y="proportion of reads remaining")
+        ggplot(subset(ar, stage!="raw"), aes(x=stage, y=mean, fill=group)) + geom_bar(stat="identity") + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2) + labs(y="proportion of reads remaining") + facet_grid(group~.)
+        ggsave("{output.graph}", width=16, height=10)
+
+        outtab=dcast(d[!is.na(d$group),], group+sampleName~stage, value.var="number")
+        outtab=outtab[order(outtab$group, outtab$sampleName),]
+        write.table(outtab, "{output.tab}", quote=F, sep="\t", col.names=T, row.names=F)
         """)
         
 rule prepPrecluster:

@@ -29,12 +29,33 @@ isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
             "Psp": ["Lib7-0095", "Lib8-0095"],
             "CR": ["Lib0-0075"],
             "ME": ["Lib2-0056", "Lib4-0056"],
-            "UM": ["Lib2-0009", "Lib2-0009"],
+            "UM": ["Lib2-0009", "Lib6-0009"],
             "LS": ["Lib3-0027", "Lib7-0027"],
             "DT": ["Lib3-0095", "Lib5-0095"],
             "IF": ["Lib6-0027", "Lib8-0027"],
             "MR": ["Lib4-0009", "Lib8-0009"]
             }
+
+allSamples = samples + expand("Run2-00{bc}", bc=["09","34", "18", "56","27", "75"]) + ["Lib4-0018"] 
+for s in isolates.values():
+    allSamples.extend(s)
+
+sampleName = {"Lib1-0075": "GRB_l_w", "Lib1-0034": "GRB_p_w",
+              "Lib5-0075": "GRB_l_s", "Lib5-0034": "GRB_p_s",
+              "Lib2-0075": "DGW_l_w", "Lib2-0034": "DGW_p_w",
+              "Lib6-0075": "DGW_l_s", "Lib6-0034": "DGW_p_s",
+              "Lib3-0075": "STN_l_w", "Lib3-0034": "STN_p_w",
+              "Lib7-0075": "STN_l_s", "Lib7-0034": "STN_p_s",
+              "Lib4-0075": "FUKUSW_l_w",
+              "Lib8-0075": "FUKUSW_l_s", "Lib8-0034": "FUKUSW_p_s",
+              "Run2-0009": "mock_emPCR", "Run2-0018": "mock_i8c13",
+              "Run2-0027": "mock_i8c15", "Run2-0056": "mock_i8c18", 
+              "Run2-0075": "mock_i8c25", "Run2-0095": "mock_i2c18", 
+              "Run2-0034": "mock_i20c18", "Lib4-0018": "mock_i8c30"}
+for name, iSamples in isolates.items():
+    for s, sId in enumerate(iSamples):
+        sampleName[sId] = "%s%i" % (name, s+1)
+
 
 #samples = []
 #for lib, bcList in config["samples"].items():
@@ -615,7 +636,7 @@ rule compareCls:
     input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
     output: diff="{sampleSet}_clsDiff.tsv", comp="{sampleSet}_clsComp.tsv", diffStat="{sampleSet}_clsDiffStat.tsv"
     run:
-        ranks=["kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        ranks=["eukaryota", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
         diff = {"ssu_lsu": {}, "ssu_its": {}, "its_lsu":{}}
         size = {}
         allCls = {}
@@ -636,7 +657,7 @@ rule compareCls:
             if lsuCls == "unknown":
                 cls["lsu"] = None
             else:
-                cls["lsu"] = lsuCls.split(";")
+                cls["lsu"] = [lsuEntry.replace(" ", "_") for lsuEntry in lsuCls.split(";")]
                 if len(cls["lsu"]) > maxLen:
                     maxLen=len(cls["lsu"])
             if itsCls == "unknown":
@@ -667,7 +688,7 @@ rule compareCls:
                 if not cls["its"] is None and len(cls["its"]) > lvl:
                     tCls[1] = cls["its"][lvl]
                 if not cls["lsu"] is None and len(cls["lsu"]) > lvl:
-                    tCls[2] = cls["lsu"][lvl].replace(" ", "_")
+                    tCls[2] = cls["lsu"][lvl]
                 if not tCls[0] is None and (tCls[0] == tCls[1] or tCls[0] == tCls[2]):
                     com[oId].append(tCls[0])
                 elif not tCls[1] is None and tCls[1] == tCls[2]:
@@ -717,7 +738,7 @@ rule compareCls:
                 mrk1, mrk2 = comp.split("_")
                 for rank, diffData in diff[comp].items():
                     for oId, m1Cls, m2Cls, parent, phylum in diffData:
-                        out.write("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (comp, mrk1, mrk2, rank, oId, m1Cls, m2Cls, parent, phylum))
+                        out.write("%s\t%s\t%s\t%s\t%s\t%i\t%s\t%s\t%s\t%s\n" % (comp, mrk1, mrk2, rank, oId, size[oId], m1Cls, m2Cls, parent, phylum))
         with open(output.comp, "w") as out:
             for oId in com.keys():
                 out.write("%s\t%s;" % (oId, ";".join([str(c) for c in com[oId]])))
@@ -731,7 +752,7 @@ rule compareCls:
                             if r < len(com[oId]):
                                 if cls[r] != com[oId][r]:
                                     out.write("%s;" % cls[r])
-                                else:
+                                elif not com[oId][r] is None:
                                     out.write("--;")
                             else:
                                 out.write("%s;" % cls[r])
@@ -744,7 +765,7 @@ rule compareCls:
 
 rule plotDiff:
     input: "{sampleSet}_clsDiffStat.tsv"
-    output: "{sampleSet}_clsDiffStat.svg"
+    output: bars="{sampleSet}_clsDiffStat.svg", prop="{sampleSet}_clsDiffPropSame.svg"
     run:
         R("""
         library(ggplot2)
@@ -753,7 +774,7 @@ rule plotDiff:
         d=read.table("{input}", sep="\t")
         colnames(d) = c("oId", "size", "fungi", "mrk1", "mrk2", "domain", "kingdom", "phylum", "class", "order", "family", "genus", "species")
 
-        for (lvl in c("domain", "kingdom", "phylum", "class", "order", "family", "genus", "species")) {{
+        for (lvl in c("kingdom", "phylum", "class", "order", "family", "genus", "species")) {{
             d[,lvl] = factor(d[,lvl], levels=c("same", "diff", "blank", NA))
         }}
 
@@ -764,10 +785,85 @@ rule plotDiff:
         
         m$mrk1=factor(m$mrk1, levels=c("ssu", "its", "lsu"))
         m$mrk2=factor(m$mrk2, levels=c("ssu", "its", "lsu"))
-        ggplot(subset(m, size>1 & !is.na(value))) + geom_bar(aes(x=variable, fill=value)) + facet_grid(mrk1~mrk2, switch="y") + scale_fill_manual(values=c("grey30", "red", "blue")) + labs(y="OTU count", x="taxonomic level") + scale_y_continuous(position = "right") + theme_bw()
+        ggplot(subset(m, size>1 & !is.na(value) & variable!="domain")) + geom_bar(aes(x=variable, fill=value)) + facet_grid(mrk1~mrk2) + scale_fill_manual(values=c("grey30", "red", "blue")) + labs(y="OTU count", x="taxonomic level") + theme_bw()
 
-        ggsave("{output}", width=16, height=10)
+        #ggplot(subset(m, size>1 & !is.na(value) & variable!="domain")) + geom_bar(aes(x=variable, fill=value)) + facet_grid(mrk1~mrk2, switch="y") + scale_fill_manual(values=c("grey30", "red", "blue")) + labs(y="OTU count", x="taxonomic level") + scale_y_continuous(position = "right") + theme_bw()
+
+        ggsave("{output.bars}", width=16, height=10)
+
+
+        #proportion of comparable (assigned in both markers) OTUs
+        mrk = levels(m$mrk1)
+        tax = levels(m$variable)
+        
+        a=aggregate(oId~mrk1+mrk2+variable+value, m[m$size>1,], length)
+        a$prop = NA
+        a$pAss = NA
+        for (m1 in mrk) {{
+            for (m2 in setdiff(mrk, c(m1))) {{
+                for (v1 in tax) {{
+                    total = sum(subset(a, mrk1==m1 & mrk2==m2 & variable==v1)$oId)
+                    ass = sum(subset(a, mrk1==m1 & mrk2==m2 & variable==v1 & (value=="same" | value=="diff"))$oId)
+                    for (v2 in unique(subset(a, mrk1==m1 & mrk2==m2 & a$variable==v1)$value)) {{
+                        a[a$mrk1==m1 & a$mrk2==m2 & a$variable==v1 & a$value==v2,]$prop = a[a$mrk1==m1 & a$mrk2==m2 & a$variable==v1 & a$value==v2,]$oId/total
+                    }}
+                    for (v2 in setdiff(unique(subset(a, mrk1==m1 & mrk2==m2 & a$variable==v1)$value), c("blank"))) {{
+                        a[a$mrk1==m1 & a$mrk2==m2 & a$variable==v1 & a$value==v2,]$pAss = a[a$mrk1==m1 & a$mrk2==m2 & a$variable==v1 & a$value==v2,]$oId/ass
+                    }}
+                }}
+            }}
+        }}
+
+        #ggplot(a) + geom_line(aes(x=variable, y=pAss, group=value, color=value)) + facet_grid(mrk1~mrk2, switch="y") + scale_color_manual(values=c("grey30", "red", "blue")) + labs(y="proportion of comparable OTUs", x="taxonomic level") + theme_bw()
+        a$comp=paste(a$mrk1, a$mrk2, sep="-")
+        ggplot(subset(a, value=="same" & (comp %in% c("ssu-its", "ssu-lsu", "its-lsu")) & variable!="domain")) + geom_point(aes(x=variable, y=pAss, color=comp)) + geom_line(aes(x=variable, y=pAss, group=comp, color=comp), linetype=2) + theme_bw() + labs(y="proportion of comparable OTUs that have the same classification", x="taxonomic level")
+        ggsave("{output.prop}", width=16, height=10)
 """)
+
+def plotChimeraInput(wildcards):
+    if wildcards.sample == "all":
+        return ["chimera/%s.chimeraReport.tsv" % s for s in samples]
+    elif wildcards.sample == "stechlin":
+        return ["chimera/%s.chimeraReport.tsv" % s for s in stechlin]
+    elif wildcards.sample in isolates:
+        return ["chimera/%s.chimeraReport.tsv" % s for s in isoaltes[wildcards.sample]]
+    else:
+        return "chimera/%s.chimeraReport.tsv" % wildcards.sample
+
+rule plotChimera:
+    input: plotChimeraInput
+    output: tab="chimera/{sample}_chimeraTable.tsv", relative="chimera/{sample}_chimerasRelativeBarplot.svg"
+    run:
+        R("""
+        library(ggplot2)
+        d=numeric(0)
+        for (inFile in strsplit("{input}", " ", fixed=T)[[1]]) {{
+            sample=strsplit(strsplit(inFile, "/")[[1]][2], ".", fixed=T)[[1]][1]
+            n=read.table(inFile, as.is=c(2))
+            colnames(n) = c("score", "query", "parentA", "parentB", "topParent", "idQM", "idQA", "idQB", "idAB", "idQT", "LY", "LN", "LA", "RY", "RN","RA", "div", "YN")
+            n$YN=factor(n$YN, levels=c("Y", "?", "N"))
+            n$sample=sample
+            n$size = as.numeric(sub(";", "", sapply(strsplit(n$query, "="), function(x) x[4])))
+            d = rbind(d, n)
+        }}
+
+        cbPalette <- c("red", "darkgrey", "blue")
+
+        totals = aggregate(size~sample, d, sum)
+
+        a=aggregate(size~sample+YN, d, sum)
+        colnames(a) = c("sample", "YN", "count")
+        a$proportion = NA
+        for (i in 1:length(a$count)) {{
+            a$proportion[i] = a$count[i] / totals[totals$sample==a$sample[i],]$size
+        }}
+
+        write.table(a, "{output.tab}", sep="\t", row.names=F)
+
+        ggplot(a) + geom_bar(aes(sample, proportion, fill=YN), stat="identity") + scale_y_continuous(labels = scales::percent) + labs(x="", y="proportion of reads", title="Chimera classification in different samples") + scale_fill_manual(values=cbPalette, name=NULL, breaks=c("Y", "N", "?"), labels=c("Chimeric", "Non-chimeric", "Unclear")) + theme_bw()
+        ggsave("{output.relative}", width=16, height=10)
+
+        """)
 
 rule combineIsolateCls:
     input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())

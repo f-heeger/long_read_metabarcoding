@@ -121,13 +121,15 @@ rule windowQualFilter:
                     tQual = 1 - tError
                     tRemoved=False
                     if (tQual) < params.minQual:
-                        removed += 1
                         tRemoved = True
+                        anyRemoved = True
                     kmer=str(read.seq[i:i+params.winSize])
                     hp = homopoly(kmer)
                     statOut.write("%s\t%s\t%i\t%i\t%f\t%s\t%s\t%i\t%i\t%i\t%i\t%i\n" % (wildcards.sample, read.id, i, len(read), tQual, tRemoved, kmer, kmer.count("A"), kmer.count("C"), kmer.count("G"), kmer.count("T"), hp))
                 if not anyRemoved:
                     out.write(read.format("fastq"))
+                else:
+                    removed += 1
             with open(log[0], "w") as logFile:
                 logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
 
@@ -315,7 +317,7 @@ rule plotReadNumber:
         d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
 
         d$group=NA
-        d[d$sample %in% c("Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
+        d[d$sample %in% c(Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
         d[d$sample=="Lib4-0018" | d$lib=="Run2",]$group="mock_community"
         d[d$lib=="Lib0" | (d$lib!="Run2" & d$bc %in% c(9, 27, 56, 95)),]$group="isolate"
 

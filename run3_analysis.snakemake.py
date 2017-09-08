@@ -125,7 +125,7 @@ def otuReadsInput(wildcards):
     elif wildcards.sample in isolates:
         return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident)] + expand("preclusters/{sample}_cluInfo.tsv", sample=isolates[wildcards.sample])
     else:
-        return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident), "preclusters/all_cluInfo.tsv"]
+        return  ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident), "preclusters/%s_cluInfo.tsv" % (wildcards.sample)]
 
 rule otuReads:
     input: otuReadsInput

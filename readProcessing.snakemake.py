@@ -172,6 +172,7 @@ rule fastq2fasta:
         with open(output[0], "w") as out:
             for read in SeqIO.parse(open(input[0]), "fastq"):
                 out.write(read.format("fasta"))
+        shell("sleep 1m; touch {output}")
 
 rule readNumbers_raw:
     input: raw=expand("raw/{sample}.fastq", sample=allSamples)
@@ -317,7 +318,7 @@ rule plotReadNumber:
         d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
 
         d$group=NA
-        d[d$sample %in% c(Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
+        d[d$sample %in% c("Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
         d[d$sample=="Lib4-0018" | d$lib=="Run2",]$group="mock_community"
         d[d$lib=="Lib0" | (d$lib!="Run2" & d$bc %in% c(9, 27, 56, 95)),]$group="isolate"
 

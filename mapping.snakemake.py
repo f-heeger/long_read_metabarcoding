@@ -10,69 +10,8 @@ shell.prefix("sleep 10; ")
 
 configfile: "config.json"
 
-samples = {"Lib4-0018": "mock",
-           "Lib1-0009": "CA1",
-           "Lib1-0027": "PC1",
-           "Lib1-0056": "Csp1",
-           "Lib1-0095": "CL1",
-           "Lib2-0009": "UM1",
-           "Lib2-0027": "PC2",
-           "Lib2-0056": "ME1",
-           "Lib3-0009": "SC1",
-           "Lib3-0027": "LS1",
-           "Lib3-0056": "Csp2",
-           "Lib3-0095": "DT1",
-           "Lib4-0009": "MR1",
-           "Lib4-0027": "EV1",
-           "Lib4-0056": "ME2",
-           "Lib5-0009": "CA2",
-           "Lib5-0027": "EV2",
-           "Lib5-0095": "DT2",
-           "Lib6-0009": "UM2",
-           #"Lib6-0027": "IF1",
-           "Lib6-0095": "CL2",
-           "Lib7-0009": "SC2",
-           "Lib7-0027": "LS2",
-           "Lib7-0056": "PB1",
-           "Lib7-0095": "Psp1",
-           "Lib8-0009": "MR2",
-#           "Lib8-0027": "IF2",
-           "Lib8-0056": "PB2",
-           "Lib8-0095": "Psp2",
-           "Lib0-0009": "CHY1",
-           "Lib0-0075": "CR",
-           "Lib0-0056": "TR",
-           "Run2-0009": "mock_em",
-           "Run2-0018": "mock_c13i8",
-           "Run2-0027": "mock_c15i8",
-           "Run2-0056": "mock_c18i8",
-           "Run2-0075": "mock_c25i8",
-           "Run2-0095": "mock_c18i2",
-           "Run2-0034": "mock_c18i20"
-           }
-
-isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
-            "SC": ["Lib3-0009", "Lib7-0009"],
-            "CL": ["Lib1-0095", "Lib6-0095"],
-            "EV": ["Lib4-0027", "Lib5-0027"],
-            "PB": ["Lib7-0056", "Lib8-0056"],
-            "CHY1": ["Lib0-0009"],
-            "TR": ["Lib0-0056"], 
-            "PC": ["Lib1-0027", "Lib2-0027"],
-            "Csp": ["Lib1-0056", "Lib3-0056"],
-            "Psp": ["Lib7-0095", "Lib8-0095"],
-            "CR": ["Lib0-0075"],
-            "ME": ["Lib2-0056", "Lib4-0056"],
-            "UM": ["Lib2-0009", "Lib6-0009"],
-            "LS": ["Lib3-0027", "Lib7-0027"],
-            "DT": ["Lib3-0095", "Lib5-0095"],
-            #"IF": ["Lib6-0027", "Lib8-0027"],
-            "MR": ["Lib4-0009", "Lib8-0009"]
-            }
 
 ref = ["LSU", "SSU", "ITS"]
-
-include: "readProcessing.snakemake.py"
 
 rule mapping:
     input: reads="primers/{sample}_primer.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
@@ -158,7 +97,7 @@ rule compareMappingCls:
                 else:
                     cls = "|".join(comb)
                     unclear+=1
-                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (samples[wildcards.sample],
+                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (sampleName[wildcards.sample],
                                                         rec.id, 
                                                         "|".join(set(ssu.get(rec.id,["unknown"]))), 
                                                         "|".join(set(its.get(rec.id,["unknown"]))), 
@@ -167,7 +106,7 @@ rule compareMappingCls:
         print("%s: %i unknown, %i unclear" % (wildcards.sample, unknown, unclear))
         
 rule concatCls:
-    input: expand("mapping/{sample}_cls.tsv", sample=samples)
+    input: expand("mapping/{sample}_cls.tsv", sample=sampleName.keys())
     output: "mapping/combinedCls.tsv"
     shell:
         "cat {input} > {output}"
@@ -304,7 +243,7 @@ rule compareCluCls:
                 else:
                     cls = "|".join(comb)
                     unclear+=1
-                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (samples[wildcards.sample],
+                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (sampleName[wildcards.sample],
                                                         rec.id, 
                                                         "|".join(set(ssu.get(rec.id,["unknown"]))), 
                                                         "|".join(set(its.get(rec.id,["unknown"]))), 
@@ -350,7 +289,7 @@ rule getFullRef:
         open(output[0], "w").write(seq[0].format("fasta"))
 
 rule collectFullRef:
-    input: expand("fullRef/{spec}.fasta", spec=isolates.keys())
+    input: expand("fullRef/{spec}.fasta", spec=[s for s in isolates.keys() if s != "IF"])
     output: "fullRef/isolateSeqs.fasta"
     shell:
         "cat {input} > {output}"
@@ -474,14 +413,14 @@ rule getFullCls:
                     out.write("%s\tUNKNOWN\tNA\tNA\tNA\tNA\n" % rId)
 
 rule collectFullCls:
-    input: expand("mapping/assignment/{sample}_{{stage}}_assignments.tsv", sample=samples.keys())
+    input: expand("mapping/assignment/{sample}_{{stage}}_assignments.tsv", sample=sampleName.keys())
     output: "mapping/all_{stage}_assignments.tsv"
     run:
         with open(output[0], "w") as out:
             for inputFile in input:
                 sample = inputFile.rsplit("/", 1)[-1].split("_", 1)[0]
                 for line in open(inputFile):
-                    out.write("%s\t%s\t%s" % (sample, samples[sample], line))
+                    out.write("%s\t%s\t%s" % (sample, sampleName[sample], line))
 
 rule plotErrorRate:
     input: "mapping/all_{stage}_assignments.tsv"
@@ -491,6 +430,9 @@ rule plotErrorRate:
         library(ggplot2)
         library(reshape2)
 
+        env=c("DGW_l_s", "DGW_l_w", "DGW_p_s", "DGW_p_w", "FUKUSW_l_s", "FUKUSW_l_w", "FUKUSW_p_s", "GRB_l_s", "GRB_l_w", "GRB_p_s", "GRB_p_w", "STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
+        mock=paste("mock", c("emPCR", "i20c18", "i2c18", "i8c13", "i8c15", "i8c18", "i8c25", "i8c30"), sep="_")
+
         d=read.table("{input}")
 
         colnames(d) = c("sampleId", "sampleName", "readID", "cls", "alnLen", "sub", "ins", "del")
@@ -498,9 +440,9 @@ rule plotErrorRate:
         d$pIns = d$ins/d$alnLen
         d$pDel = d$del/d$alnLen
 
-        e=subset(d, sampleName!="mock" & cls!="CHIMERA" & cls!="UNKNOWN")
+        e=subset(d, !(sampleName %in% mock) & !(sampleName %in% env) & cls!="CHIMERA" & cls!="UNKNOWN")
         p=melt(e, id.vars=c("sampleId", "sampleName", "readID", "cls"), measure.vars=c("pSub", "pIns", "pDel"))
-        ggplot(p) + geom_boxplot(aes(x=sampleName, y=value, fill=variable)) + labs(x="isolate sample", y="error rate", fill="error type") + scale_fill_brewer(labels=c("substitutions", "insertions", "deletions"), type="div") + theme_bw()
+        ggplot(p) + geom_boxplot(aes(x=sampleName, y=value, fill=variable)) + labs(x="isolate sample", y="error rate", fill="error type") + scale_fill_brewer(labels=c("substitutions", "insertions", "deletions"), type="div") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output}", width=16, height=10)
         """)
 
@@ -511,19 +453,23 @@ rule plotAssignment:
         R("""
         library(ggplot2)
         
+        env=c("DGW_l_s", "DGW_l_w", "DGW_p_s", "DGW_p_w", "FUKUSW_l_s", "FUKUSW_l_w", "FUKUSW_p_s", "GRB_l_s", "GRB_l_w", "GRB_p_s", "GRB_p_w", "STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
+        
         d=read.table("{input}")
         colnames(d) = c("sampleId", "sampleName", "readID", "cls", "alnLen", "sub", "ins", "del")
         d$cls=factor(d$cls, levels=c("UNKNOWN", "CHIMERA", "MR", "LS", "ME", "PB", "Psp", "CL", "SC", "DT", "CR", "TR", "PC", "Csp", "CHY1", "UM", "EV", "CA"))
         
+        p=subset(d, !(sampleName %in% env))
+        
         mycols = adjustcolor(rainbow(16), red.f = 0.7, blue.f = 0.7, green.f = 0.7)
         mycols = c("grey", "black", mycols)
-        ggplot(d) + geom_bar(aes(x=sampleName, fill=cls)) +scale_fill_manual(values=mycols) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggplot(p) + geom_bar(aes(x=sampleName, fill=cls)) +scale_fill_manual(values=mycols) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output.ass}", width=16, height=10)
         
-        a=aggregate(readID~cls+sampleName, d, length)
-        ggplot(a) + geom_tile(aes(sampleName, cls, fill=log10(readID))) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(x="sample", y="classification", fill="log10(read number)") + theme_bw()
+        a=aggregate(readID~cls+sampleName, p, length)
+        ggplot(a) + geom_tile(aes(sampleName, cls, fill=log10(readID))) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(x="sample", y="classification", fill="log10(read number)") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output.occ}", width=16, height=10)
         
-        ggplot(subset(d, sampleName %in% c("mock", "mock_em", "mock_c13i8", "mock_c15i8", "mock_c18i8", "mock_c25i8", "mock_c18i2", "mock_c18i20"))) + geom_bar(aes(x=sampleName, fill=cls), position="fill") +scale_fill_manual(values=mycols, drop=F) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+        ggplot(p) + geom_bar(aes(x=sampleName, fill=cls), position="fill") +scale_fill_manual(values=mycols, drop=F) + labs(x="sample", y="read number", fill="classification") + theme_bw() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
         ggsave("{output.mock}", width=16, height=10)
         """)

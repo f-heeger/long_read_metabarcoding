@@ -70,6 +70,7 @@ for name, iSamples in isolates.items():
 
 include: "createDBs.snakemake.py"
 include: "readProcessing.snakemake.py"
+include: "mapping.snakemake.py"
 
 ####################################################################
 

@@ -419,3 +419,30 @@ rule taxComp:
         with open(output[0], "w") as out:
             for key, value in miss.items():
                 out.write("%s\t%i\n" % ("\t".join(key), len(value)))
+                
+rule mockDbOccurence:
+    input: ssu="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config, its="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config, lsu="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
+    output: "mockOccurence.tsv"
+    run:
+        mockList=["Clavariopsis aquatica",
+              "Clonostachys rosea",
+              "Trichoderma reesei",
+              "Ustilago maydis",
+              "Saccharomyces cerevisiae",
+              "Mortierella elongata",
+              "Cystobasidium laryngis",
+              "Metschnikowia reukaufii",
+              "Penicillium piscarium",
+              "Exobasidium vaccinii",
+              "Phanerochaete chrysosporium",
+              "Leucosporidium scottii",
+              "Penicillium brevicompactum",
+              "Davidiella tassiana"]
+        with open(output[0], "w") as out:
+            for mock in mockList:
+                for line in shell("set +e; grep -F \"%s\" %s; echo 0 > /dev/null" % (mock.replace(" ", "_"), input.ssu), iterable=True):
+                    out.write("SSU\t%s\t%s\n" % (mock, line.strip()))
+                for line in shell("set +e; grep -F \"%s\" %s; echo 0 > /dev/null" % (mock.replace(" ", "_"), input.its), iterable=True):
+                    out.write("ITS\t%s\t%s\n" % (mock, line.strip()))
+                for line in shell("set +e; grep -F \"%s\" %s; echo 0 > /dev/null" % (mock, input.lsu), iterable=True):
+                    out.write("LSU\t%s\t%s\n" % (mock, line.strip()))

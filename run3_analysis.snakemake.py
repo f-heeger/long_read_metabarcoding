@@ -877,6 +877,24 @@ rule combineIsolateCls:
                     out.write("%s\t%s" % (spec, line))
             
 
+rule isolatePreclusterSize:
+    input: expand("consensus/{sample}_consensus.fasta", sample=[item for sublist in isolates.values() for item in sublist])
+    output: "isoPreclusterSize.tsv"
+    run:
+        samp2iso = {}
+        for iso, sampleList in isolates.items():
+            for s in sampleList:
+                samp2iso[s] = iso
+        with open(output[0], "w") as out:
+            for inFilePath in input:
+                sample = inFilePath.split("/")[1].split("_")[0]
+                iso = samp2iso[sample]
+                for rec in SeqIO.parse(open(inFilePath), "fasta"):
+                    size = rec.id.strip(";").rsplit(";", 1)[0].split("=")[1]
+                    out.write("%s\t%s\t%s\t%s\n" % (iso, sample, rec.id, size))
+
+################### helper functions #############################
+
 def findTiling(hsp):
     G=nx.DiGraph()
     nodes = []

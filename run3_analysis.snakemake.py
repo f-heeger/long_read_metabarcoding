@@ -890,7 +890,7 @@ rule isolatePreclusterSize:
                 sample = inFilePath.split("/")[1].split("_")[0]
                 iso = samp2iso[sample]
                 for rec in SeqIO.parse(open(inFilePath), "fasta"):
-                    size = rec.id.strip(";").rsplit(";", 1)[0].split("=")[1]
+                    size = rec.id.strip(";").rsplit(";", 1)[1].split("=")[1]
                     out.write("%s\t%s\t%s\t%s\n" % (iso, sample, rec.id, size))
 
 ################### helper functions #############################

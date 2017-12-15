@@ -983,16 +983,9 @@ def findTiling(hsp):
         end = "END"
     current = end
     path = []
-    try:
-        while pre["START"][current] != start:
-            path.append(pre["START"][current])
-            current = pre["START"][current]
-    except KeyError:
-        print(hsp)
-        print(G.edges())
-        print(path)
-        print(pre)
-        raise
+    while pre["START"][current] != start:
+        path.append(pre["START"][current])
+        current = pre["START"][current]
     
     return [int(p[1:]) for p in path[::-2]]
 

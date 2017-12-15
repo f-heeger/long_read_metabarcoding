@@ -17,18 +17,21 @@ rule concatRawfiles:
         "cat {input} > {output}"
 
 rule fastqc:
+    """Run fastqc an all samples"""
     input: "%(inFolder)s/{sample}.fastq" % config
     output: "QC/{sample}_fastqc.html"
     threads: 6
     shell: "%(fastqc)s -o QC -t {threads} {input}" % config
 
 rule multiqc:
+    """Combine QC reports into one with multiqc"""
     input: expand("QC/{sample}_fastqc.html", sample=samples)
     output: "QC/multiqc_report.html", "QC/multiqc_data/multiqc_fastqc.txt"
     shell:
         "%(multiqc)s -f --interactive -o QC QC/*_fastqc.zip" % config
 
 rule lengthFilter:
+    """Filter reads by minimum and maximum length"""
     input: fastq="raw/{sample}.fastq"
     output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
     log: "logs/{sample}_lenFilter.log"
@@ -51,6 +54,7 @@ rule lengthFilter:
             logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, params.maxLen))
 
 rule qualityFilter:
+    """Filter reads by minimum mean quality"""
     input: fastq="lenFilter/{sample}_rightLen.fastq"
     output: good="qualFilter/{sample}_goodQual.fastq", bad="qualFilter/{sample}_badQual.fastq", info="qualFilter/{sample}_qualInfo.tsv"
     params: minQual=0.996
@@ -74,6 +78,7 @@ rule qualityFilter:
         open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, params.minQual))
 
 rule qualityVsLength:
+    """Generate data for plotting length vs quality"""
     input: fasta="lenFilter/{sample}_rightLen.fastq", qual="qualFilter/{sample}_qualInfo.tsv"
     output: tsv="qualFilter/{sample}_LenVsQual.tsv"
     run:
@@ -86,12 +91,14 @@ rule qualityVsLength:
                 out.write("%s\t%s\t%i\t%f\n" % (wildcards.sample, rec.id, len(rec), qual[rec.id]))
 
 rule concatQualVsLength:
+    """Concatenate quality vs length data for all samples"""
     input: expand("qualFilter/{sample}_LenVsQual.tsv", sample=samples)
     output: "qualFilter/lenVsQual.tsv"
     shell:
         "cat {input} > {output}"
 
 rule plotQualVsLength:
+    """Plot quality vs length"""
     input: "qualFilter/lenVsQual.tsv"
     output: "lenVsQual.png"
     run:
@@ -107,6 +114,7 @@ rule plotQualVsLength:
         
 
 rule windowQualFilter:
+    """Filter by sliding window mean quality"""
     input: fastq="qualFilter/{sample}_goodQual.fastq"
     output: good="windowQualFilter/{sample}_goodQual.fastq", stat="windowQualFilter/{sample}_stat.tsv"
     params: winSize=8, minQual=0.9
@@ -134,16 +142,14 @@ rule windowQualFilter:
                 logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
 
 rule catWindowQual:
+    """concatenate window quality data for all samples"""
     input: expand("windowQualFilter/Lib{libNr}-0075_stat.tsv", libNr=range(1,9)), expand("windowQualFilter/Lib{libNr}-0034_stat.tsv", libNr=[1,2,3,5,6,7,8]), "windowQualFilter/Lib4-0018_stat.tsv"
     output: "windowQualFilter/envStats.tsv"
     shell:
         "cat {input} > {output}"
 
-rule plotWindowQual:
-    input: "windowQualFilter/envStats.tsv"
-    
-
 rule filterPrimer:
+    """Filter sequences by occurence of primer sequences and cut primer sequences"""
     input: "windowQualFilter/{sample}_goodQual.fastq"
     output: fastq="primers/{sample}_primer.fastq"
     log: "logs/{sample}_primer.log"
@@ -166,6 +172,7 @@ rule filterPrimer:
         shell("cat primers/{wildcards.sample}_forward_reverse.fastq >> {output}")
 
 rule fastq2fasta:
+    """Convert reads from fastq to fasta"""
     input: "primers/{sample}_primer.fastq"
     output: "primers/{sample}_primer.fasta"
     run:
@@ -175,6 +182,7 @@ rule fastq2fasta:
         shell("sleep 1m; touch {output}")
 
 rule readNumbers_raw:
+    """Count raw reads"""
     input: raw=expand("raw/{sample}.fastq", sample=allSamples)
     output: "readNumbers/rawReadNumbers.tsv"
     run:
@@ -192,7 +200,9 @@ rule readNumbers_raw:
                         i+=1
                 sample = rawFileName.rsplit("/", 1)[-1].split(".")[0]
                 out.write("raw\t%s\t%i\n" % (sample, i))
+
 rule readNumbers_maxLen:
+    """Count reads after length filter"""
     input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=allSamples)
     output: "readNumbers/lenReadNumbers.tsv"
     run:
@@ -212,6 +222,7 @@ rule readNumbers_maxLen:
                 out.write("lenFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_qual:
+    """Count reads after average quality filter"""
     input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=allSamples)
     output: "readNumbers/qualReadNumbers.tsv"
     run:
@@ -231,6 +242,7 @@ rule readNumbers_qual:
                 out.write("qualFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_winQual:
+    """Countr reads after sliding window quality filter"""
     input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=allSamples)
     output: "readNumbers/winQualReadNumbers.tsv"
     run:
@@ -250,6 +262,7 @@ rule readNumbers_winQual:
                 out.write("winQualFilter\t%s\t%i\n" % (sample, i))
 
 rule readNumbers_primer:
+    """Count reads after primer filtering"""
     input: primer=expand("primers/{sample}_primer.fastq", sample=allSamples)
     output: "readNumbers/primerReadNumbers.tsv"
     run:
@@ -269,6 +282,7 @@ rule readNumbers_primer:
                 out.write("primerFilter\t%s\t%i\n" % (sample, i))
 
 rule catReadNumber:
+    """Concatenate all read numbers for plotting"""
     input: "readNumbers/rawReadNumbers.tsv", "readNumbers/lenReadNumbers.tsv", "readNumbers/qualReadNumbers.tsv", "readNumbers/winQualReadNumbers.tsv", "readNumbers/primerReadNumbers.tsv"
     output: "readNumbers/readNumbers.tsv"
     run:
@@ -280,6 +294,7 @@ rule catReadNumber:
                     out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (stage, sample, sampleName[sample], number, lib, bc))
 
 rule plotReadNumber:
+    """Plot read number after each filtering step"""
     input: "readNumbers/readNumbers.tsv"
     output: graph="readNumbers.svg", tab="readNumbersTab.tsv"
     run:
@@ -352,6 +367,7 @@ rule plotReadNumber:
         """)
         
 rule prepPrecluster:
+    """Prepare reads for pre-clustering i.e. sort them by mean quality"""
     input: fasta="primers/{sample}_primer.fasta", qual="qualFilter/{sample}_qualInfo.tsv"
     output: "preclusters/{sample}_cluInput.fasta"
     run:
@@ -372,6 +388,7 @@ rule prepPrecluster:
                 out.write(read.format("fasta"))
 
 rule preCluster:
+    """Pre-cluster at 99% similarity with vsearch, create consensus sequence"""
     input: "preclusters/{sample}_cluInput.fasta"
     output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
     log: "logs/{sample}_pre-cluster.log"
@@ -380,6 +397,7 @@ rule preCluster:
         "%(vsearch)s --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule preClusterInfo:
+    """Create tables for which read is in which pre cluster and number of reads per pre-cluster"""
     input: clsInfo="preclusters/{sample}.uc.txt"
     output: info="preclusters/{sample}_cluInfo.tsv", size="preclusters/{sample}_cluster.size.tsv"
     run:
@@ -397,6 +415,7 @@ rule preClusterInfo:
                     raise ValueError("Unknown record type: %s" % line[0])
 
 rule removeChimera:
+    """Run de-novo chimera removal with vsearch on pre-clusters"""
     input: seqs="consensus/{sample}_consensus.fasta"
     output: fasta="chimera/{sample}.nochimera.fasta", tsv="chimera/{sample}.chimeraReport.tsv"
     log: "logs/{sample}_chimera.log"
@@ -404,6 +423,7 @@ rule removeChimera:
         "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 rule itsx:
+    """Run ITSx on pre-cluster"""
     input: "chimera/{sample}.nochimera.fasta"
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
@@ -412,12 +432,14 @@ rule itsx:
         "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
 def sampleMappingInput(wildcards):
+    """determine input data for transferOtus rule according to sampleSet wildcard"""
     if wildcards.sampleSet == "stechlin":
         return expand("itsx/{sampleSet}.full.fasta", sampleSet=stechlin)
     else:
         return expand("itsx/{sampleSet}.full.fasta", sampleSet=samples)
 
 rule getSampleMapping:
+    """Create a dictonary (in a pickle file) of which pre-cluster comes from which sample"""
     input: sampleMappingInput
     output: sample="{sampleSet}_preClu2sample.pic"
     run:
@@ -428,7 +450,9 @@ rule getSampleMapping:
                 preClu2sample[rec.id] = sample
         pickle.dump(preClu2sample, open(output.sample, "wb"))
 
+######### helper functions ##########
 def homopoly(kmer):
+    """Check if kmer is a homopolymer"""
     last=None
     rv=1
     h=1

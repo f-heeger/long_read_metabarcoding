@@ -11,8 +11,6 @@ import networkx as nx
 
 shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution and slow samba
 
-#include: "mapping.snakemake.py"
-
 configfile: "config.json"
 
 samples = expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2,3,5,6,7,8])
@@ -57,13 +55,6 @@ for name, iSamples in isolates.items():
         sampleName[sId] = "%s%i" % (name, s+1)
 
 
-#samples = []
-#for lib, bcList in config["samples"].items():
-#    for bc in bcList: 
-#        samples.append("%s-%s" % (lib, bc))
-#samples=["Lib4-0018"]
-#print(sorted(samples))
-
 
 ####################################################################
 # includes
@@ -80,27 +71,32 @@ rule all:
 #    input: expand("primers/{sample}_primer.fasta", sample=samples)
 
 rule concatItsxResult:
+    """Concatenate ITSx results from different samples"""
     input: expand("itsx/{sample}.{{marker}}.fasta", sample=samples)
     output: "catItsx/all.{marker}.fasta"
     shell:
         "cat {input} > {output}"
 
 rule concatStechlin:
+    """Concatenate ITSx results for Stechlin samples"""
     input: expand("itsx/{sample}.{{marker}}.fasta", sample=stechlin)
     output: "catItsx/stechlin.{marker}.fasta"
     shell:
         "cat {input} > {output}"
 
 def catIsolatesInput(wildcards):
+    """determine input data for catIsolate rule"""
     return ["itsx/%s.%s.fasta" % (s, wildcards.marker) for s in isolates[wildcards.spec]]
 
 rule concatIsolates:
-        input: catIsolatesInput
-        output:"isolates/{spec}.{marker}.fasta"
-        shell:
-            "cat {input} > {output}"
+    """Concatenate ITSx results for an isolate sample"""
+    input: catIsolatesInput
+    output:"isolates/{spec}.{marker}.fasta"
+    shell:
+        "cat {input} > {output}"
 
 def otuInput(wildcards):
+    """determine input file for OTU clustering according to sample wildcard"""
     if wildcards.sample == "all":
         return "catItsx/all.full.fasta"
     elif wildcards.sample == "stechlin":
@@ -111,6 +107,7 @@ def otuInput(wildcards):
         return "itsx/%s.full.fasta" % wildcards.sample
 
 rule otuCluster:
+    """Cluster OTUs by ITS sequence with vsearch"""
     input: otuInput
     output: fasta="otus/{sample}_{ident}otus.fasta", uc="otus/{sample}_{ident}otus.uc.tsv"
     log: "logs/{sample}_{ident}otuClustering.log"
@@ -119,6 +116,7 @@ rule otuCluster:
         "%(vsearch)s --cluster_size {input} --relabel otu --sizein --sizeout --iddef 0 --id 0.{wildcards.ident} --minsl 0.9 --centroids {output.fasta} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 def otuReadsInput(wildcards):
+    """determine input data for otuReads rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["otus/all_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
     elif wildcards.sample == "stechlin":
@@ -129,6 +127,13 @@ def otuReadsInput(wildcards):
         return  ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident), "preclusters/%s_cluInfo.tsv" % (wildcards.sample)]
 
 rule otuReads:
+    """Generate different infos for the OTUs (as dictonaries in pickle files)
+    
+    *otus.size.tsv: number of reads in the OTU
+    *otuReadInfo.pic: reads for each OTU
+    *otu_preClusterInfo.pic: preClusters for each OTU
+    *otu_repSeq.pic: representative sequence of the OTU
+    """
     input: otuReadsInput
     output: size="otus/{sample}_{ident}otus.size.tsv", info="otus/{sample}_{ident}otuReadInfo.pic", preInfo="otus/{sample}_{ident}otu_preClusterInfo.pic", repInfo="otus/{sample}_{ident}otu_repSeq.pic"
     run:
@@ -181,6 +186,7 @@ rule otuReads:
 
 
 def transferOtusInput(wildcards):
+    """determine input data for transferOtus rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["otus/all_%sotu_repSeq.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
     elif wildcards.sample == "stechlin":
@@ -192,6 +198,7 @@ def transferOtusInput(wildcards):
 
 
 rule transferOtus:
+    """Create file with non-ITS marker sequence (SSU or LSU) per OTU"""
     input: transferOtusInput
     output: "otus/{sample}_{ident}otus_{marker}.fasta"
     run:
@@ -205,6 +212,7 @@ rule transferOtus:
                     out.write(rec.format("fasta"))
 
 rule alignToUnite:
+    """Search for local sequence matches of ITS sequences in the UNITE database with lambda"""
     input: clu="otus/{sample}_{ident}otus.fasta", db="%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
     output: "lambda/{sample}.{ident}otu_vs_UNITE.m8"
     log: "logs/{sample}_{ident}otu_lambda.log"
@@ -213,6 +221,7 @@ rule alignToUnite:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
 
 rule classifyITS:
+    """Classify OTU based on ITS matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
@@ -276,6 +285,7 @@ rule classifyITS:
             pass
 
 rule alignToSilva:
+    """Search for local sequence matches of SSU sequences in the SILVA database with lambda"""
     input: clu="otus/{sample}_{ident}otus_SSU.fasta", db="%(dbFolder)s/silva_SSU_index.lambda" % config
     output: "lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8"
     log: "logs/{sample}_{ident}otu_SSU_lambda.log"
@@ -284,6 +294,7 @@ rule alignToSilva:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 20000 -p blastn -t {threads} -b -2 -x 30 -as F &> {log}" % config
 
 rule classifySSU:
+    """Classify OTU based on SSU matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_SSU.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
@@ -361,6 +372,7 @@ rule classifySSU:
             logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
 
 rule alignToRdp:
+    """Search for local sequence matches of LSU sequences in the RDP LSU database with lambda"""
     input: clu="otus/{sample}_{ident}otus_LSU.fasta", db="%(dbFolder)s/rdp_LSU_index.lambda" % config
     output: "lambda/{sample}.{ident}otu_LSU_vs_RDP.m8"
     log: "logs/{sample}_{ident}otuLSU_lambda.log"
@@ -369,6 +381,7 @@ rule alignToRdp:
         "%(lambdaFolder)s/lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -x 40 -as F &> {log}" % config
 
 rule classifyLSU:
+    """Classify OTU based on LSU matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_LSU_vs_RDP.m8", tax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_LSU.class.tsv"
     params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
@@ -446,6 +459,7 @@ rule classifyLSU:
             logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
 
 rule combineCls:
+    """Create table with OTU classifications with SSU, ITS, LSU"""
     input: ssu="taxonomy/{sample}_{ident}otu_SSU.class.tsv", its="taxonomy/{sample}_{ident}otu_ITS.class.tsv", lsu="taxonomy/{sample}_{ident}otu_LSU.class.tsv", size="otus/{sample}_{ident}otus.size.tsv"
     output: "taxonomy/{sample}_{ident}_comb.class.tsv"
     run:
@@ -472,6 +486,7 @@ rule combineCls:
                 out.write("%s\t%i\t%s\t%s\t%s\n" % (itsId, size, ssuTax, itsTax, lsuTax))
 
 rule createOtuTab:
+    """Create a OTU table, with size, classiifcation and occurence information"""
     input: tax="taxonomy/{sampleSet}_{ident}_comb.class.tsv", otu2pClu="otus/{sampleSet}_{ident}otu_preClusterInfo.pic", sample="{sampleSet}_preClu2sample.pic"
     output: "{sampleSet}_otu{ident}_table.tsv"
     run:
@@ -500,6 +515,7 @@ rule createOtuTab:
 
 
 rule getCorrectCls:
+    """Get "correct" classification for OTUs based on reference mapping"""
     input: otuInfo="otus/Lib4-0018_{ident}otuReadInfo.pic", cls="mapping/assignment/Lib4-0018_filtered_assignments.tsv"
     output: "taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv"
     run:
@@ -522,6 +538,7 @@ rule getCorrectCls:
                 out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
 
 rule compareCorrectCls:
+    """Create table with OTU classifications including the "correct" one"""
     input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", otu= "taxonomy/Lib4-0018_{ident}_comb.class.tsv"
     output: "taxonomy/Lib4-0018_{ident}_combToCorr.class.tsv"
     run:
@@ -536,6 +553,7 @@ rule compareCorrectCls:
                 out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, size, corr, ssuTax, itsTax, lsuTax))
 
 rule collectClsStats:
+    """Create table of classifications (including depth) as input for ggplot"""
     input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
     output: complete="taxonomy/{sampleSet}_97_comb.stats.tsv" 
     run:
@@ -586,6 +604,7 @@ rule collectClsStats:
 
 
 rule plotClsComp:
+    """Create plots of classifications depth"""
     input: all="taxonomy/{sampleSet}_97_comb.stats.tsv"
     output: depth="{sampleSet}_clsComp_depth.svg", depthFungi="{sampleSet}_clsComp_depth_fungi.svg", block="{sampleSet}_clsComp_basic.svg"
     run:
@@ -617,23 +636,28 @@ rule plotClsComp:
         ggsave("{output.block}", width=16, height=10)
         """)
 
-rule plotDephtOverview:
-    input: "taxonomy/all_97_comb.stats.tsv"
-    output: "classificationDepth.svg"
-    params: minSize=5
-    run:
-        R("""
-        library(ggplot2)
-        
-        d=read.table("{input}", sep="\t")
-        colnames(d) = c("oId", "size", "marker", "phylum", "depth")
-        d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
-        
-        ggplot(d[d$size>={params.minSize},]) + geom_bar(aes(factor(depth), weight=size)) + facet_grid(.~marker) + scale_x_discrete(labels=c("NA", "kingdom", "phylum", "class", "order", "family", "genus", "species")) + coord_flip() + labs(y="read count", x="classfied to") + theme_bw()
-        ggsave("{output}", width=16, height=10)
-        """)
+#rule plotDephtOverview:
+#    input: "taxonomy/all_97_comb.stats.tsv"
+#    output: "classificationDepth.svg"
+#    params: minSize=5
+#    run:
+#        R("""
+#        library(ggplot2)
+#        
+#        d=read.table("{input}", sep="\t")
+#        colnames(d) = c("oId", "size", "marker", "phylum", "depth")
+#        d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
+#        
+#        ggplot(d[d$size>={params.minSize},]) + geom_bar(aes(factor(depth), weight=size)) + facet_grid(.~marker) + scale_x_discrete(labels=c("NA", "kingdom", "phylum", "class", "order", "family", "genus", "species")) + coord_flip() + labs(y="read count", x="classfied to") + theme_bw()
+#        ggsave("{output}", width=16, height=10)
+#        """)
 
 rule compareCls:
+    """Compare classifications from different markers for plotting with ggplot
+    
+    Is a OTU that is classified by marker A at a certain level also classified 
+    by marker B and C at this level.
+    """
     input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
     output: diff="{sampleSet}_clsDiff.tsv", comp="{sampleSet}_clsComp.tsv", diffStat="{sampleSet}_clsDiffStat.tsv"
     run:
@@ -765,6 +789,7 @@ rule compareCls:
                         sOut.write("%s\t%i\t%s\t%s\t%s\t%s\n" % (oId, size[oId], fungi[oId], mrk, oMrk, "\t".join(values)))
 
 rule plotDiff:
+    """Plot comparison data of classification with different markers"""
     input: "{sampleSet}_clsDiffStat.tsv"
     output: bars="{sampleSet}_clsDiffStat.svg", prop="{sampleSet}_clsDiffPropSame.svg"
     run:
@@ -822,6 +847,7 @@ rule plotDiff:
 """)
 
 def plotChimeraInput(wildcards):
+    """determine input data for plotChimera rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["chimera/%s.chimeraReport.tsv" % s for s in samples]
     elif wildcards.sample == "stechlin":
@@ -832,6 +858,7 @@ def plotChimeraInput(wildcards):
         return "chimera/%s.chimeraReport.tsv" % wildcards.sample
 
 rule plotChimera:
+    """Plot chimera data for environmental samples"""
     input: plotChimeraInput
     output: tab="chimera/{sample}_chimeraTable.tsv", relative="chimera/{sample}_chimerasRelativeBarplot.svg"
     run:
@@ -867,6 +894,7 @@ rule plotChimera:
         """)
 
 rule combineIsolateCls:
+    """De novo classify isolates for evaluation"""
     input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())
     output: "taxonomy/isolates_97_comb.class.tsv"
     run:
@@ -878,6 +906,7 @@ rule combineIsolateCls:
             
 
 rule isolatePreclusterSize:
+    """Generate table of pre-cluster sizes"""
     input: expand("consensus/{sample}_consensus.fasta", sample=[item for sublist in isolates.values() for item in sublist])
     output: "isoPreclusterSize.tsv"
     run:
@@ -896,6 +925,15 @@ rule isolatePreclusterSize:
 ################### helper functions #############################
 
 def findTiling(hsp):
+    """Find a maximum scoring subset of local hits
+    
+    This is done by generating a directed graph. Every match is represented by a
+    Start (S...) and End (E...) node which are connected by an edge with the 
+    score as weight in both directions. Compatible (in the right direction, and 
+    non-overlapping) edges are connected with zero weight edges. A maximum score
+    path trough the graph than represents the set of maximum scoring 
+    non-overlapping matches.
+    """
     G=nx.DiGraph()
     nodes = []
     b_edges = []
@@ -961,6 +999,15 @@ def findTiling(hsp):
 def lca(lineageStrings, stringency=1.0, 
         unidentified=["unidentified", "unclassified", "unknown"],
         ignoreIncertaeSedis=True, sizes=None):
+    """Find lowest common ancestor
+    
+    Input is a set of strings representing classifications as path from the root
+    node to the most specific available classification. Stringency define what 
+    proportion of classifications need to concur at a certain level to be 
+    accepted. unidetnfied gives names that should be ignored. ignoreIncertaSedis
+    flag can be set to not accept incerta sedis classification. sizes can give
+    wights to each classification.
+    """
     lineage = []
     mLineages = []
     #remove bootstrap values ("(100)", "(75)", etc.) if any

@@ -1,4 +1,5 @@
 rule getUniteFile:
+    """Download UNITE fasta release"""
     output: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
     shell:
         "cd %(dbFolder)s;" \
@@ -7,6 +8,8 @@ rule getUniteFile:
         "rm sh_general_release_%(uniteVersion)s.zip" % config
 
 rule createUniteTax:
+    """create a tsv file with taxon information for UNITE sequences and remove 
+    taxon infomration from fasta file"""
     input: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
     output: fasta="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     run:
@@ -20,6 +23,7 @@ rule createUniteTax:
                 fOut.write(rec.format("fasta"))
 
 rule creatUniteIndex:
+    """Create lambda index file for UNITE data"""
     input: "%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config
     output: "%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
     threads: 6
@@ -27,18 +31,21 @@ rule creatUniteIndex:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
         
 rule getSilva_main:
+    """download SILVA fasta file"""
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config
     shell:
         "cd %(dbFolder)s;" \
         "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz" % config
 
 rule getSilva_md5:
+    """download silva md5 checksum file"""
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
     shell: 
         "cd %(dbFolder)s;" \
         "wget https://www.arb-silva.de/fileadmin/silva_databases/release_(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
     
 rule getSilva_test:
+    """run md5sum check for silva file"""
     input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
     output: touch("%(dbFolder)s/silva_{marker}dl_good" % config)
     shell: 
@@ -46,6 +53,7 @@ rule getSilva_test:
         "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
 
 rule unpackSilva:
+    """uncompress silva file"""
     input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz" % config, good="%(dbFolder)s/silva_{marker}dl_good" % config
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config
     shell:
@@ -54,16 +62,19 @@ rule unpackSilva:
         "touch SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta" % config
 
 rule getSilvaQual:
+    """Download silva sequence quality file"""
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config
     shell: "cd %(dbFolder)s;" \
            "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/quality/SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz" % config
            
 rule getSilvaQualMd5:
+    """Download silva quality md5 checksum file"""
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz.md5" % config
     shell: "cd %(dbFolder)s;" \
            "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/quality/SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz.md5" % config
            
 rule getSilvaQual_test:
+    """run md5sum check for silva quality file"""
     input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config, md5="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz.md5" % config
     output: touch("%(dbFolder)s/silva_{marker}dl_qual_good" % config)
     shell: 
@@ -71,6 +82,7 @@ rule getSilvaQual_test:
         "md5sum -c SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality.gz.md5" % config
 
 rule unpackSilvaQual:
+    """uncompress silva quality file"""
     input: gz="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality.gz" % config, good="%(dbFolder)s/silva_{marker}dl_qual_good" % config
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality" % config
     shell:
@@ -79,6 +91,7 @@ rule unpackSilvaQual:
         "touch SILVA_%(silvaVersion)s_{wildcards.marker}Ref.quality" % config
 
 rule filterSilva:
+    """Filter silva database by sequence quality and chimera probability"""
     input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta" % config, qual="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref.quality" % config
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
     log: "%(dbFolder)s/silvaFilter_{marker}.log" % config
@@ -115,18 +128,21 @@ rule filterSilva:
             open(log[0], "w").write("%i sequences read. %i sequences removed because of sequence quality < %f.\n%i sequences removed because of pintail quality < %f.\n" % (total, badS, params.minSeqQ, badP, params.minPinQ))
 
 rule getSilvaTaxMap:
+    """Download silva taxonomy data"""
     output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt" % config
     shell:
         "cd %(dbFolder)s;" \
         "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt" % config
 
 rule getSilvaTaxMapMd5:
+    """Download silva taxonomx md5 checksum"""
     output: "%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config
     shell:
         "cd %(dbFolder)s;" \
         "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/taxonomy/tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
 
 rule testSilvaTaxMap:
+    """Run silva taxonomy md5sum check"""
     input: md5="%(dbFolder)s/tax_slv_{marker}_%(silvaVersion)s.txt.md5" % config, txt="%(dbFolder)s/tax_slv_ssu_128.txt" % config
     output: touch("%(dbFolder)s/silva_{marker}dl_tax_good" % config)
     shell: 
@@ -134,14 +150,18 @@ rule testSilvaTaxMap:
         "md5sum -c tax_slv_{wildcards.marker}_%(silvaVersion)s.txt.md5" % config
 
 def renameSilvaTaxInput(wildcards):
+    """determine input data for renameSilvaTax rule (lower case, unlike fasta file)"""
     return "%(dbFolder)s/tax_slv_" % config + wildcards.marker.lower() + "_%(silvaVersion)s.txt" % config #, "%(dbFolder)s/silva_"% config + wildcards.marker.lower() + "dl_tax_good"]
 
 rule renameSilvaTax:
+    """Rename silva taxonomy (change marker name to upper case to be consistent 
+    with fasta file)"""
     input: renameSilvaTaxInput
     output: "%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
     shell: "mv {input} {output}"
 
 rule createSlivaTax:
+    """Create taxonomy file for silva, only using "canonical" levels"""
     input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, tax="%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
     output: tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     run:
@@ -169,6 +189,7 @@ rule createSlivaTax:
                 tOut.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
 
 rule creatSilvaIndex:
+    """Create lambda index for silva file"""
     input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
     output: "%(dbFolder)s/silva_{marker}_index.lambda" % config
     threads: 6
@@ -176,6 +197,7 @@ rule creatSilvaIndex:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
 
 rule getRdpLsu:
+    """Download rdp LSU file (fasta file and readme with version number)"""
     output: "%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, "%(dbFolder)s/releaseREADME.txt" % config
     shell: 
         "cd %(dbFolder)s;" \
@@ -184,6 +206,7 @@ rule getRdpLsu:
         "wget http://rdp.cme.msu.edu/download/releaseREADME.txt" % config
 
 rule unpackRdpLsu:
+    """uncompress rdp data; also check versio number"""
     input: gz="%(dbFolder)s/current_Fungi_unaligned.fa.gz" % config, version="%(dbFolder)s/releaseREADME.txt" % config
     output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
     run:
@@ -197,6 +220,7 @@ rule unpackRdpLsu:
         shell(cmd)
 
 rule createRdpLsuTax:
+    """crete RDP taxonomy file"""
     input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
     output: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
     run:
@@ -229,6 +253,7 @@ rule createRdpLsuTax:
                 out.write("%s\t%s;\n" % (rec.id, ";".join([newTax[r] for r in accRank])))
 
 rule createRdpLsuIndex:
+    """create lambda index for RDP database"""
     input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
     output: "%(dbFolder)s/rdp_LSU_index.lambda" % config
     threads: 6
@@ -236,6 +261,7 @@ rule createRdpLsuIndex:
         "%(lambdaFolder)s/lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
 
 rule ssuOverview:
+    """Generate taxonomy level statistics for silva"""
     input: ssuFasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, ssuTax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     output: ssuOut="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_stars.tsv" % config
     run:
@@ -251,6 +277,7 @@ rule ssuOverview:
                 out.write("%s\t%i\t%s\n" % (sId, length, "\t".join(ssuCls[sId])))
 
 rule itsOverview:
+    """Generate taxonomy level statistics for UNITE"""
     input: itsFasta="%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config, itsTax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     output: itsOut="%(dbFolder)s/UNITE_%(uniteVersion)s_stats.tsv" % config
     run:
@@ -265,6 +292,7 @@ rule itsOverview:
             for iId, length in itsSize.items():
                 out.write("%s\t%i\t%s\n" % (iId, length, "\t".join(itsCls[iId])))
 rule lsuOverview:
+    """Generate taxonomy level statistics for RDP LSU"""
     input: lsuFasta="%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config, lsuTax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
     output: lsuOut="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_stats.tsv" % config
     run:
@@ -280,6 +308,7 @@ rule lsuOverview:
                 out.write("%s\t%i\t%s\n" % (lId, length, "\t".join(lsuCls[lId])))
 
 rule dbOverviewPlot:
+    """plot taxonomy level statistics for all thress databases"""
     input: ssu="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_stars.tsv" % config, its="%(dbFolder)s/UNITE_%(uniteVersion)s_stats.tsv" % config, lsu="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_stats.tsv" % config
     output: length="dbOverview_len.pdf", tax="dbOverview_tax.pdf"
     run:

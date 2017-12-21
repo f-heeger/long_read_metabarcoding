@@ -423,7 +423,7 @@ rule removeChimera:
         "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 rule itsx:
-    """Run ITSx on pre-cluster"""
+    """Run ITSx on pre-cluster"""   
     input: "chimera/{sample}.nochimera.fasta"
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
@@ -432,7 +432,7 @@ rule itsx:
         "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
 def sampleMappingInput(wildcards):
-    """determine input data for transferOtus rule according to sampleSet wildcard"""
+    """determine input data for sampleMapping rule according to sampleSet wildcard"""
     if wildcards.sampleSet == "stechlin":
         return expand("itsx/{sampleSet}.full.fasta", sampleSet=stechlin)
     else:

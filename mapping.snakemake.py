@@ -1,19 +1,7 @@
-from snakemake.utils import min_version, R
-from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
-
-min_version("3.5.4")
-
-shell.prefix("sleep 10; ")
-
-configfile: "config.json"
-
-
 ref = ["LSU", "SSU", "ITS"]
 
 rule mapping:
+    """deprecated"""
     input: reads="primers/{sample}_primer.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
     output: m5="mapping/mapping/{sample}_vs_{ref}.m5"
     threads: 3
@@ -21,6 +9,7 @@ rule mapping:
         "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
 
 rule getCls:
+    """deprecated"""
     input: "mapping/mapping/{sample}_vs_{ref}.m5"
     output: "mapping/matches/match_{sample}_{ref}.tsv"
     run:
@@ -59,6 +48,7 @@ rule getCls:
                 
                 
 rule compareMappingCls:
+    """deprecated"""
     input: reads="primers/{sample}_primer.fasta", its="mapping/matches/match_{sample}_ITS.tsv", ssu="mapping/matches/match_{sample}_SSU.tsv", lsu="mapping/matches/match_{sample}_LSU.tsv"
     output: "mapping/{sample}_cls.tsv"
     run:
@@ -112,6 +102,7 @@ rule concatCls:
         "cat {input} > {output}"
         
 rule plot:
+    """deprecated"""
     input: "mapping/combinedCls.tsv"
     output: bar="mapping/readPerSampleBarplot.pdf", heat="mapping/readPerSampleHeatmap.pdf", tab="mapping/readClassification.tsv"
     run:
@@ -133,6 +124,7 @@ rule plot:
         """)
 
 rule seqByCls:
+    """deprecated"""
     input: reads="primers/{sample}_primer.fasta", cls="mapping/combinedCls.tsv"
     output: dynamic("mapping/byCls/{sample}-{cls}.fasta")
     run:
@@ -151,6 +143,7 @@ rule seqByCls:
                 out.close()
 
 rule byClsAlignemnet:
+    """deprecated"""
     input: "mapping/byCls/{sample}-{cls}.fasta"
     output: "mapping/alnByCls/{sample}-{cls}.aln.fasta"
     log: "mapping/logs/byClsAln_{sample}-{cls}.log"
@@ -160,6 +153,7 @@ rule byClsAlignemnet:
 
         
 rule clusterMapping:
+    """deprecated"""
     input: reads="clusters/{sample}_cluster.fasta", ref="../PacBioMetabarcoding2/references/all_{ref}.fasta"
     output: m5="mapping/cluMapping/{sample}_vs_{ref}.m5"
     threads: 3
@@ -167,6 +161,7 @@ rule clusterMapping:
         "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
 
 rule getCluCls:
+    """deprecated"""
     input: "mapping/cluMapping/{sample}_vs_{ref}.m5"
     output: "mapping/cluMatches/match_{sample}_{ref}.tsv"
     run:
@@ -205,6 +200,7 @@ rule getCluCls:
                 
                 
 rule compareCluCls:
+    """deprecated"""
     input: reads="clusters/{sample}_cluster.fasta", its="mapping/cluMatches/match_{sample}_ITS.tsv", ssu="mapping/cluMatches/match_{sample}_SSU.tsv", lsu="mapping/cluMatches/match_{sample}_LSU.tsv"
     output: "mapping/{sample}_cls_clusters.tsv"
     run:
@@ -253,6 +249,7 @@ rule compareCluCls:
         
 
 rule removeChimeraRef:
+    """Remove chimeras with vsearch reference based algorithm"""
     input: seqs="primers/{sample}_primer.fasta", ref="fullRef/isolateSeqs.fasta"
     output: fasta="chimeraRef/{sample}.nochimera.fasta", tsv="chimeraRef/{sample}.chimeraReport.tsv"
     log: "logs/{sample}_refChimera.log"
@@ -260,9 +257,11 @@ rule removeChimeraRef:
         "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 def fullRefInput(wildcards):
+    """determine input data for fullRef rule according to isolate samples in the config"""
     return ["consensus/%s_consensus.fasta" % s for s in isolates[wildcards.spec]]
 
 rule getFullRef:
+    """Select one consensus per isolate sample"""
     input: fullRefInput
     output: "fullRef/{spec}.fasta"
     params: minSize=10
@@ -289,12 +288,14 @@ rule getFullRef:
         open(output[0], "w").write(seq[0].format("fasta"))
 
 rule collectFullRef:
+    """Collect all isolate sequence into one fasta file"""
     input: expand("fullRef/{spec}.fasta", spec=[s for s in isolates.keys() if s != "IF"])
     output: "fullRef/isolateSeqs.fasta"
     shell:
         "cat {input} > {output}"
 
 rule fullRefITSx:
+    """Use ITSx to find rRNA genes/regions in each isolate"""
     input: "fullRef/isolateSeqs.fasta"
     output: "fullRef/itsx/isolateSeqs.SSU.fasta", "fullRef/itsx/isolateSeqs.ITS1.fasta", "fullRef/itsx/isolateSeqs.5_8S.fasta", "fullRef/itsx/isolateSeqs.ITS2.fasta", "fullRef/itsx/isolateSeqs.LSU.fasta", "fullRef/itsx/isolateSeqs.summary.txt", "fullRef/itsx/isolateSeqs.positions.txt", "fullRef/itsx/isolateSeqs.full.fasta"
     threads: 6
@@ -303,6 +304,7 @@ rule fullRefITSx:
         "%(itsx)s -t . -i {input} -o fullRef/itsx/isolateSeqs --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
 
 rule createFullRefAnnoation:
+    """Create gff annotation file with found rRNA genes/regions"""
     input: pos="fullRef/itsx/isolateSeqs.positions.txt"
     output: anno="fullRef/isolateSeqs.gff3"
     run:
@@ -323,6 +325,7 @@ rule createFullRefAnnoation:
                         out.write("%s\tITSx\t%s\t%s\t%s\t.\t+\t.\t%s\n" % (seqid, typeDict[name], start, end, "ID=%i;Name=%s" % (l, name)))
 
 rule fullRawMapping:
+    """Map raw reads against isolate sequences with blasr"""
     input: reads="raw/{sample}.fastq", ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5"
     threads: 6
@@ -330,13 +333,15 @@ rule fullRawMapping:
         "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
 
 rule fullMapping:
+    """Map filtered reads against isolate sequences with blasr"""
     input: reads="chimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5"
     threads: 6
     shell: 
-        "/home/heeger/bin/blasr/blasr -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}"
+        "%(blasr)s -m 5 --bestn 50 --nproc {threads} --minPctSimilarity 90 --out {output.m5} {input.reads} {input.ref}" % config
 
 rule getFullRawCls:
+    """Create table with assignment (including chimera) for each raw read"""
     input: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5", fastq="raw/{sample}.fastq"
     output: matches="mapping/fullMatches/match_{sample}_raw_isolates.tsv", assign="mapping/assignment/{sample}_raw_assignments.tsv"
     run:
@@ -373,6 +378,7 @@ rule getFullRawCls:
                     out.write("%s\tUNKNOWN\tNA\tNA\tNA\tNA\n" % rId)
 
 rule getFullCls:
+    """Create table with assignment (including chimera) for each filtered read"""
     input: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5", chimera="chimeraRef/{sample}.chimeraReport.tsv"
     output: matches="mapping/fullMatches/match_{sample}_filtered_isolates.tsv", assign="mapping/assignment/{sample}_filtered_assignments.tsv"
     run:
@@ -413,6 +419,7 @@ rule getFullCls:
                     out.write("%s\tUNKNOWN\tNA\tNA\tNA\tNA\n" % rId)
 
 rule collectFullCls:
+    """Collect mapping data from all samples into one table"""
     input: expand("mapping/assignment/{sample}_{{stage}}_assignments.tsv", sample=sampleName.keys())
     output: "mapping/all_{stage}_assignments.tsv"
     run:
@@ -423,6 +430,7 @@ rule collectFullCls:
                     out.write("%s\t%s\t%s" % (sample, sampleName[sample], line))
 
 rule plotErrorRate:
+    """Plot error rate per type and per sample as a boxplot"""
     input: "mapping/all_{stage}_assignments.tsv"
     output: "mapping/{stage}ErrorRates.svg"
     run:
@@ -447,6 +455,8 @@ rule plotErrorRate:
         """)
 
 rule plotAssignment:
+    """Plot occurence of each isoalte per sample as a heat map and composition of 
+    each sample as a bar plot (for raw or filterd reads)"""
     input: "mapping/all_{stage}_assignments.tsv"
     output: ass="mapping/{stage}Assignments.svg", occ="mapping/{stage}Occurence.svg", mock="mapping/{stage}MockComp.svg"
     run:

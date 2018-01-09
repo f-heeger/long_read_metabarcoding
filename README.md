@@ -1,10 +1,10 @@
 # Long Read Metabarcoding
-This pipeline was devloped to analyze PacBio CSS amplicon data of the fungi rRNA operon, but might also be useful for other eukaryotes and with different primers. 
+This pipeline was developed to analyze PacBio CSS amplicon data of the fungi rRNA operon, but might also be useful for other eukaryotes and with different primers. 
 
 ## Dependecies
-The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/stable/) work flow. It contains a mix of rules directly written in python and rules that call external tools. The path for exteranl tools can be defined in the config.json file.
+The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/stable/) work flow. It contains a mix of rules directly written in python and rules that call external tools. The path for external tools can be defined in the config.json file.
 
-The workflow uses several python pacakges and external tools that have to be installed. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
+The workflow uses several python packages and external tools that have to be installed. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
 
 ### Python pakages
 * snakemake (version >= 3.5.4)
@@ -27,20 +27,20 @@ The workflow uses several python pacakges and external tools that have to be ins
 
 
 ## Running the analysis
-TODO
+After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with snakemake -s run_analysis.snakemake.py. This will create 
 
 ## Rules
 
-The following is a list of the main rules in the workflow. Many simple rules are not specifcally documented here.
+The following is a list of the main rules in the workflow. Many simple rules are not specifically documented here.
 
 ### getFullCls
-For each pre-cluster representative sequeces get a classification. This can be either  i) CHIMERA if the reference base chimera detection called this as chimeric (Y) or possibly chimeric (?),  ii) UNKNOWN if the sequence was not called as chimeric, but not match to an isolate consensus sequence was found or iii) the name of species, this is given by the highest scoring match to a isolate consensus sequence for non-chimeric sequences.
+For each pre-cluster representative sequences get a classification. This can be either  i) CHIMERA if the reference base chimera detection called this as chimeric (Y) or possibly chimeric (?),  ii) UNKNOWN if the sequence was not called as chimeric, but not match to an isolate consensus sequence was found or iii) the name of species, this is given by the highest scoring match to a isolate consensus sequence for non-chimeric sequences.
 
 ### fullMapping
 Run blasr to map representatives of non-chimeric pre-clusters against the isolate consensus sequences. The following parameters are used: -m 5 to get tabular output, --bestn 50 to get a maximum of 50 hits for each query and --minPctSimilarity 90 to get only hits with at least 90% identity.
 
 ### removeChimeraRef
-Run vsearch to remove chimeras with reference based approach. The --uchime_ref parameter is used to run the reference based chimera detection algorithm and the --db parameter to give the isolate consensus sequences selected by the getFullRef rule as reference sequenes.
+Run vsearch to remove chimeras with reference based approach. The --uchime_ref parameter is used to run the reference based chimera detection algorithm and the --db parameter to give the isolate consensus sequences selected by the getFullRef rule as reference sequences.
 
 ### getFullRef
 For each isolate sample get the consensus sequence of the biggest pre-cluster. Will give an error if there are more than one pre-cluster with 10 or more reads for one sample. Compares sequences for replicates of each species (if available) and writes a warning to the log file if a difference is encountered.

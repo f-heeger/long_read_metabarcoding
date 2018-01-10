@@ -7,27 +7,26 @@ The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/st
 The workflow uses several python packages and external tools that have to be installed. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
 
 ### Python pakages
-* snakemake (version >= 3.5.4)
-* biopython
-* networkx
+* [snakemake](http://snakemake.readthedocs.io/en/stable/) (version 3.5.5
+* [biopython](https://pypi.python.org/pypi/biopython/1.70) (version 1.66)
+* [networkx](https://pypi.python.org/pypi/networkx/) (version 1.11)
 
 ### External Tools
-* fastqc
-* multiqc
-* cutadapt
-* vsearch
-* lambda
-* itsx
-* blasr
-
+* [fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) (version 0.11.2)
+* [multiqc](http://multiqc.info/) (version 0.6)
+* [cutadapt](https://cutadapt.readthedocs.io/en/stable/) (version 1.9.1)
+* [vsearch](https://github.com/torognes/vsearch) (version 2.4.3)
+* [lambda](https://seqan.github.io/lambda/) (version 1.9.2)
+* [itsx](http://microbiology.se/software/itsx/) (vesrion 1.0.11)
+* [blasr](https://github.com/PacificBiosciences/blasr)   (github version from [Oct 13, 2016](https://github.com/PacificBiosciences/blasr/tree/16b158dd09d79fc6274da11fa154c45f0f689ef0))
 ### Databases
-* UNITE
-* SILVA
-* RDP LSU
+* [UNITE](https://unite.ut.ee/) (20.11.2016)
+* [SILVA](https://www.arb-silva.de/) (128)
+* [RDP LSU](http://rdp.cme.msu.edu/misc/resources.jsp) (11.5)
 
 
 ## Running the analysis
-After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with snakemake -s run_analysis.snakemake.py. This will create 
+After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with snakemake -s run_analysis.snakemake.py.
 
 ## Rules
 

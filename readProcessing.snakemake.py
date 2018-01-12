@@ -414,17 +414,10 @@ rule preClusterInfo:
                 else:
                     raise ValueError("Unknown record type: %s" % line[0])
 
-rule removeChimera:
-    """Run de-novo chimera removal with vsearch on pre-clusters"""
-    input: seqs="consensus/{sample}_consensus.fasta"
-    output: fasta="chimera/{sample}.nochimera.fasta", tsv="chimera/{sample}.chimeraReport.tsv"
-    log: "logs/{sample}_chimera.log"
-    shell:
-        "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 rule itsx:
     """Run ITSx on pre-cluster"""   
-    input: "chimera/{sample}.nochimera.fasta"
+    input: "denovoChimera/{sample}.nochimera.fasta"
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
     log: "logs/{sample}_itsx.log"

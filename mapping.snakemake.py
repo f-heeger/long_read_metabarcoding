@@ -248,13 +248,13 @@ rule compareCluCls:
         print("%s: %i unknown, %i unclear" % (wildcards.sample, unknown, unclear))
         
 
-rule removeChimeraRef:
-    """Remove chimeras with vsearch reference based algorithm"""
-    input: seqs="primers/{sample}_primer.fasta", ref="fullRef/isolateSeqs.fasta"
-    output: fasta="chimeraRef/{sample}.nochimera.fasta", tsv="chimeraRef/{sample}.chimeraReport.tsv"
-    log: "logs/{sample}_refChimera.log"
-    shell:
-        "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
+#rule removeChimeraRef:
+#    """Remove chimeras with vsearch reference based algorithm"""
+#    input: seqs="primers/{sample}_primer.fasta", ref="fullRef/isolateSeqs.fasta"
+#    output: fasta="chimeraRef/{sample}.nochimera.fasta", tsv="chimeraRef/{sample}.chimeraReport.tsv"
+#    log: "logs/{sample}_refChimera.log"
+#    shell:
+#        "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 def fullRefInput(wildcards):
     """determine input data for fullRef rule according to isolate samples in the config"""
@@ -334,7 +334,7 @@ rule fullRawMapping:
 
 rule fullMapping:
     """Map filtered reads against isolate sequences with blasr"""
-    input: reads="chimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
+    input: reads="refChimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5"
     threads: 6
     shell: 
@@ -379,7 +379,7 @@ rule getFullRawCls:
 
 rule getFullCls:
     """Create table with assignment (including chimera) for each filtered read"""
-    input: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5", chimera="chimeraRef/{sample}.chimeraReport.tsv"
+    input: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5", chimera="refChimera/{sample}.chimeraReport.tsv"
     output: matches="mapping/fullMatches/match_{sample}_filtered_isolates.tsv", assign="mapping/assignment/{sample}_filtered_assignments.tsv"
     run:
         data={}

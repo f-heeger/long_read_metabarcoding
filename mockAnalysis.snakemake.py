@@ -17,16 +17,8 @@ configfile: "config.json"
 rule all:
     input: "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", expand("mock/clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]),
 
-rule removeChimera:
-    input: seqs="primers/{sample}_primer.fasta", ref="isolateSeqs.fasta"
-    output: fasta="mock/refChimera/{sample}.nochimera.fasta", tsv="mock/refChimera/{sample}.chimeraReport.tsv"
-    log: "mock/logs/{sample}_refChimera.log"
-    threads: 6
-    shell:
-        "%(vsearch)s --uchime_ref {input.seqs} --db {input.ref} --nonchimeras {output.fasta} --uchimeout {output.tsv} --threads {threads} &> {log}" % config
-
 rule itsx:
-    input: "mock/refChimera/{sample}.nochimera.fasta"
+    input: "refChimera/{sample}.nochimera.fasta"
     output: "mock/itsx/{sample}.SSU.fasta", "mock/itsx/{sample}.ITS1.fasta", "mock/itsx/{sample}.5_8S.fasta", "mock/itsx/{sample}.ITS2.fasta", "mock/itsx/{sample}.LSU.fasta", "mock/itsx/{sample}.summary.txt", "mock/itsx/{sample}.positions.txt", "mock/itsx/{sample}.full.fasta"
     threads: 6
     log: "mock/logs/{sample}_itsx.log"

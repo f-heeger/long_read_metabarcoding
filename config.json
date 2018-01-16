@@ -13,6 +13,5 @@
     "rdpVersion": "11.5",
     "fwd_primer" : "CAGTAGTCATATGCTTGTC",
     "rev_primer" : "ACCTATGTTTTAATTAGACAGTCAG",
-    "samples" : {"Lib8": ["0009", "0027", "0034", "0056", "0075", "0095"], "Lib3": ["0009", "0027", "0034", "0056", "0075", "0095"], "Lib2": ["0009", "0027", "0034", "0056", "0075"], "Lib1": ["0009", "0027", "0034", "0056", "0075", "0095"], "Lib7": ["0009", "0027", "0034", "0056", "0075", "0095"], "Lib6": ["0009", "0027", "0034", "0075", "0095"], "Lib5": ["0009", "0027", "0034", "0075", "0095"], "Lib4": ["0009", "0018", "0027", "0056", "0075"]},
-    "inFolder": "raw"
+    "inFolder": "/home/heeger/spree_nobackup/NO_BACKUP/heeger/PacBioMetabarcoding3c/raw"
 }

@@ -32,7 +32,7 @@ rule multiqc:
 
 rule lengthFilter:
     """Filter reads by minimum and maximum length"""
-    input: fastq="raw/{sample}.fastq"
+    input: fastq="%(inFolder)s/{sample}.fastq" % config
     output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
     log: "logs/{sample}_lenFilter.log"
     params: maxLen = 6500, minLen = 3000

@@ -334,7 +334,7 @@ rule fullRawMapping:
 
 rule fullMapping:
     """Map filtered reads against isolate sequences with blasr"""
-    input: reads="refChimeraRef/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
+    input: reads="refChimera/{sample}.nochimera.fasta", ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_filtered_vs_isolates.m5"
     threads: 6
     shell: 

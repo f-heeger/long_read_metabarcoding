@@ -202,7 +202,7 @@ rule getRdpLsu:
     shell: 
         "cd %(dbFolder)s;" \
         "wget http://rdp.cme.msu.edu/download/current_Fungi_unaligned.fa.gz;" \
-        "rm releaseREADME.txt" \
+        "rm releaseREADME.txt;" \
         "wget http://rdp.cme.msu.edu/download/releaseREADME.txt" % config
 
 rule unpackRdpLsu:

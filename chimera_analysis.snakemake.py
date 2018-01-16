@@ -196,8 +196,16 @@ rule subset:
                 read.id = "%i_%s" % (r, read.id)
                 out.write(read.format("fasta"))
 
+rule sampleNamesTab:
+    output: "mockSamples.tsv"
+    run:
+        with open(output[0], "w") as out:
+            for fileName, sample in sampleInfo["sampleName"].items():
+                if sample.startswith("mock"):
+                    out.write("%s\t%s\n" % (fileName, sample))
+
 rule plotChimera:
-    input: expand("refChimera/{sample}.chimeraReport.tsv", sample=mockSamples)
+    input: "mockSamples.tsv", expand("refChimera/{sample}.chimeraReport.tsv", sample=mockSamples)
     output: total="chimeraTotalBarplot.svg", tab="chimeraTable.tsv", relative_cy="chimeraCyclesRelativeBarplot.svg", relative_in="chimeraInputRelativeBarplot.svg", subset_cy="chimeraCyclesSubset.svg", subset_in="chimeraInputSubset.svg"
     params: subset=200
     run:
@@ -206,8 +214,12 @@ rule plotChimera:
         SIZE = {params.subset}
         d=numeric(0)
 
-        for (inFile in strsplit("{input}", " ", fixed=T)[[1]]) {{
-            sample=strsplit(strsplit(inFile, "/")[[1]][2], ".", fixed=T)[[1]][1]
+        inFiles = strsplit("{input}", " ", fixed=T)[[1]]
+        
+        sampleName = read.table(inFiles[1], row.names=1, as.is=T)
+        
+        for (inFile in inFiles[2:length(inFiles)) {{
+            sample=sampleName[strsplit(strsplit(inFile, "/")[[1]][2], ".", fixed=T)[[1]][1], 1]
             n=read.table(inFile)
             colnames(n) = c("score", "query", "parentA", "parentB", "topParent", "idQM", "idQA", "idQB", "idAB", "idQT", "LY", "LN", "LA", "RY", "RN","RA", "div", "YN")
             n$YN=factor(n$YN, levels=c("Y", "?", "N"))
@@ -284,8 +296,8 @@ rule removeChimeraDenovo:
         "%(vsearch)s --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
 rule compareChimera:
-    input: denovo="denovoChimera/{sample}.chimeraReport.tsv", ref="refChimera{sample}.chimeraReport.tsv", cluster2read="preclusters/{sample}_cluInfo.tsv"
-    output: "refChimera{sample}_comp.tsv"
+    input: denovo="denovoChimera/{sample}.chimeraReport.tsv", ref="refChimera/{sample}.chimeraReport.tsv", cluster2read="preclusters/{sample}_cluInfo.tsv"
+    output: "refChimera_{sample}_comp.tsv"
     run:
         clu2read = {}
         for line in open(input.cluster2read):
@@ -334,7 +346,7 @@ rule compareChimera:
 #                    out.write("%s\tcluster%i\t%s\t%s\t%s\t%s\t%s\n" % (rId, l, cluId, scr, cls, ref[rId][1], ref[rId][0]))
 
 rule plotChimeraComp:
-    input: "refChimerac30i8_comp.tsv"
+    input: "refChimera_Lib4-0018_comp.tsv"
     output: "chimera_comp_sankey.svg"
     run:
         R("""

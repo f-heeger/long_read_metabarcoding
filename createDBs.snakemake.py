@@ -42,7 +42,7 @@ rule getSilva_md5:
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
     shell: 
         "cd %(dbFolder)s;" \
-        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
+        "wget https://www.arb-silva.de/fileadmin/silva_databases/release_%(silvaVersion)s/Exports/SILVA_%(silvaVersion)s_{wildcards.marker}Ref_tax_silva_trunc.fasta.gz.md5" % config
     
 rule getSilva_test:
     """run md5sum check for silva file"""

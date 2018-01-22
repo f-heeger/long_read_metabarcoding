@@ -1,175 +1,4 @@
-import pickle
 import random
-
-from snakemake.utils import min_version, R
-
-from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
-
-#inFiles = {
-#"emPCR" : "../PacBioMetabarcoding2/raw/0009_Forward--0009_Forward.fastq",
-#"c13i8": "../PacBioMetabarcoding2/raw/0018_Forward--0018_Forward.fastq",
-#"c15i8": "../PacBioMetabarcoding2/raw/0027_Forward--0027_Forward.fastq",
-#"c18i20": "../PacBioMetabarcoding2/raw/0034_Forward--0034_Forward.fastq",
-#"c18i8": "../PacBioMetabarcoding2/raw/0056_Forward--0056_Forward.fastq",
-#"c25i8": "../PacBioMetabarcoding2/raw/0075_Forward--0075_Forward.fastq",
-#"c18i2": "../PacBioMetabarcoding2/raw/0095_Forward--0095_Forward.fastq",
-#"c30i8" : "../PacBioMetabarcoding3b/raw/Lib4-0018.fastq"
-#}
-
-#configfile: "config.json"
-
-#shell.prefix("sleep 3; ") #work around to desl with "too quck" rule execution and slow samba
-
-#rule all:
-#    input: "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg"
-
-#def getInfilePath(wildcards):
-#    return inFiles[wildcards.sample]
-
-#rule lengthFilter:
-#    input: getInfilePath
-#    output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
-#    log: "logs/{sample}_lenFilter.log"
-#    params: maxLen = 6500, minLen = 3000
-#    run:
-#        nrLong = 0
-#        nrShort = 0
-#        with open(output.right, "w") as out, open(output.long, "w") as tooLong, open(output.short, "w") as tooShort:
-#            for read in SeqIO.parse(open(input[0]), "fastq"):
-#                if len(read) <= params.minLen:
-#                    tooShort.write(read.format("fastq"))
-#                    nrShort += 1
-#                elif len(read) <= params.maxLen:
-#                    out.write(read.format("fastq"))
-#                else:
-#                    tooLong.write(read.format("fastq"))
-#                    nrLong += 1
-#        with open(log[0], "w") as logFile:
-#            logFile.write("%i reads were removed because they were longer than %i\n" % (nrLong, params.maxLen))
-#            logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, params.maxLen))
-
-#rule qualityFilter:
-#    input: fastq="lenFilter/{sample}_rightLen.fastq"
-#    output: good="qualFilter/{sample}_goodQual.fastq", bad="qualFilter/{sample}_badQual.fastq", info="qualFilter/{sample}_qualInfo.tsv"
-#    params: minQual=0.996
-#    log: "logs/{sample}_qualityFilter.log"
-#    run:
-#        removed = 0
-#        with open(output.good, "w") as out, open(output.bad, "w") as trash, open(output.info, "w") as info:
-#            for read in SeqIO.parse(open(input.fastq), "fastq"):
-#                try:
-#                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
-#                except Exception:
-#                    print(read.id)
-#                    raise
-#                info.write("%s\t%f\n" % (read.id, 1-tError))
-#                if (1-tError) < params.minQual:
-#                    removed += 1
-#                    trash.write(read.format("fastq"))
-#                else:
-#                    out.write(read.format("fastq"))
-#        open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, params.minQual))
-
-#rule windowQualFilter:
-#    input: fastq="qualFilter/{sample}_goodQual.fastq"
-#    output: good="windowQualFilter/{sample}_goodQual.fastq"
-#    params: winSize=8, minQual=0.9
-#    log: "logs/{sample}_winQualityFilter.log"
-#    run:
-#        removed = 0
-#        with open(output.good, "w") as out:
-#            for read in SeqIO.parse(open(input.fastq), "fastq"):
-#                tRemoved=False
-#                for i in range(len(read)-params.winSize):
-#                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+params.winSize] ]) / params.winSize
-#                    if (1-tError) < params.minQual:
-#                        removed += 1
-#                        tRemoved = True
-#                        break
-#                if not tRemoved:
-#                    out.write(read.format("fastq"))
-#            open(log[0], "w").write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
-
-
-#rule init_filterPrimer:
-#    input: "windowQualFilter/{sample}_goodQual.fastq"
-#    output: fastq="primers/{sample}_primer.fastq"
-#    log: "logs/{sample}_primer.log"
-#    threads: 3
-#    params: minovl=10
-#    run:
-#        shell("%(cutadapt)s -g forward=%(fwd_primer)s -g reverse=%(rev_primer)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_{{name}}.fastq {input} &> {log}" % config)
-#        config["fwd_primer_rc"] = str(Seq(config["fwd_primer"], IUPACAmbiguousDNA()).reverse_complement())
-#        config["rev_primer_rc"] = str(Seq(config["rev_primer"], IUPACAmbiguousDNA()).reverse_complement())
-#        
-#        shell("%(cutadapt)s -a forward=%(fwd_primer_rc)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_reverse_forward.fastq primers/{wildcards.sample}_reverse.fastq &>> {log}" % config)
-#        shell("%(cutadapt)s -a reverse=%(rev_primer_rc)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_forward_reverse.fastq primers/{wildcards.sample}_forward.fastq &>> {log}" % config)
-#        with open(output[0], "w") as out:
-#            for rec in SeqIO.parse(open("primers/%s_reverse_forward.fastq" % wildcards.sample), 
-#                                   "fastq"):
-#                newRec = rec.reverse_complement()
-#                newRec.id = "%s/rc" % rec.id
-#                newRec.description = rec.description.split(" ", 1)[1]
-#                out.write(newRec.format("fastq"))
-#        shell("cat primers/{wildcards.sample}_forward_reverse.fastq >> {output}")
-
-#rule fastq2fasta:
-#    input: "primers/{sample}_primer.fastq"
-#    output: "primers/{sample}_primer.fasta"
-#    run:
-#        with open(output[0], "w") as out:
-#            for read in SeqIO.parse(open(input[0]), "fastq"):
-#                out.write(read.format("fasta"))
-
-#rule prepPrecluster:
-#    input: fasta="primers/{sample}_primer.fasta", qual="qualFilter/{sample}_qualInfo.tsv"
-#    output: "preclusters/{sample}_cluInput.fasta"
-#    run:
-#        qual = {}
-#        for line in open(input.qual):
-#            rId, tQual = line.strip().split("\t")
-#            qual[rId] = tQual
-#        readList = []
-#        for read in SeqIO.parse(open(input.fasta), "fasta"):
-#            if read.id.endswith("rc"):
-#                readId = read.id.rsplit("/", 1)[0]
-#            else:
-#                readId = read.id
-#            readList.append((read, qual[readId]))
-#        with open(output[0], "w") as out:
-#            for read, qual in sorted(readList, key=lambda x: x[1], reverse=True):
-#                read.description=str(qual)
-#                out.write(read.format("fasta"))
-
-#rule preCluster:
-#    input: "preclusters/{sample}_cluInput.fasta"
-#    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
-#    log: "logs/{sample}_pre-cluster.log"
-#    threads: 6
-#    shell:
-#        "%(vsearch)s --usersort --cluster_smallmem {input} --relabel precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
-
-#rule preClusterReads:
-#    input: clsInfo="preclusters/{sample}.uc.txt"
-#    output: info="preclusters/{sample}_cluster_reads.pic"
-#    run:
-#        cluster2read = {}
-#        for line in open(input.clsInfo):
-#            if line[0] == "C":
-#                pass
-#            elif line[0] in "SH":
-#                arr = line.strip().split("\t")
-#                seq, clu = arr[-2:]
-#                if clu=="*":
-#                    cluster2read[seq] = [seq]
-#                else:
-#                    cluster2read[clu].append(seq)
-#            else:
-#                raise ValueError("Unknown record type: %s" % arr[0])
-#        pickle.dump(cluster2read, open(output.info, "wb"))
 
 rule removeChimeraRef:
     input: seqs="primers/{sample}_primer.fasta", ref="isolateSeqs.fasta"
@@ -200,9 +29,9 @@ rule sampleNamesTab:
     output: "mockSamples.tsv"
     run:
         with open(output[0], "w") as out:
-            for fileName, sample in sampleInfo["sampleName"].items():
-                if sample.startswith("mock"):
-                    out.write("%s\t%s\n" % (fileName, sample))
+            for sId, sample in sampleInfo["sampleName"].items():
+                if sampleInfo["sampleType"][sId] == "mock":
+                    out.write("%s\t%s\n" % (sId, sample))
 
 rule plotChimera:
     input: "mockSamples.tsv", expand("refChimera/{sample}.chimeraReport.tsv", sample=mockSamples)
@@ -218,7 +47,7 @@ rule plotChimera:
         
         sampleName = read.table(inFiles[1], row.names=1, as.is=T)
         
-        for (inFile in inFiles[2:length(inFiles)) {{
+        for (inFile in inFiles[2:length(inFiles)]) {{
             sample=sampleName[strsplit(strsplit(inFile, "/")[[1]][2], ".", fixed=T)[[1]][1], 1]
             n=read.table(inFile)
             colnames(n) = c("score", "query", "parentA", "parentB", "topParent", "idQM", "idQA", "idQB", "idAB", "idQT", "LY", "LN", "LA", "RY", "RN","RA", "div", "YN")
@@ -323,27 +152,6 @@ rule compareChimera:
                 for rId in clu2read[cluId]:
                     out.write("%s\tcluster%i\t%s\t%s\t%s\t%s\t%s\n" % (rId, l, cluId, scr, cls, ref[rId][1], ref[rId][0]))
 
-#rule compareChimera:
-#    input: denovo="denovoChimera/{sample}.chimeraReport.tsv", ref="chimera/{sample}.chimeraReport.tsv", cluster2read="preclusters/{sample}_cluster_reads.pic"
-#    output: "chimera/{sample}_comp.tsv"
-#    run:
-#        clu2read = pickle.load(open(input.cluster2read, "rb"))
-#        ref={}
-#        for line in open(input.ref):
-#            arr = line.strip().split("\t")
-#            scr=arr[0]
-#            readId = arr[1]
-#            cls = arr[-1]
-#            ref[readId] = (cls, scr)
-#        with open(output[0], "w") as out:
-#            out.write("readId\tclusterNr\tclusterId\tdenovoScr\tdenovo\trefScr\tref\n")
-#            for l,line in enumerate(open(input.denovo)):
-#                arr = line.strip().split("\t")
-#                scr=arr[0]
-#                cluId = arr[1].split("=", 1)[1].split(";", 1)[0]
-#                cls = arr[-1]
-#                for rId in clu2read[cluId]:
-#                    out.write("%s\tcluster%i\t%s\t%s\t%s\t%s\t%s\n" % (rId, l, cluId, scr, cls, ref[rId][1], ref[rId][0]))
 
 rule plotChimeraComp:
     input: "refChimera_Lib4-0018_comp.tsv"

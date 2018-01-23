@@ -7,7 +7,7 @@ The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/st
 The workflow uses several python packages and external tools that have to be installed. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
 
 ### Python pakages
-* [snakemake](http://snakemake.readthedocs.io/en/stable/) (version 3.5.5
+* [snakemake](http://snakemake.readthedocs.io/en/stable/) (version 3.5.5)
 * [biopython](https://pypi.python.org/pypi/biopython/1.70) (version 1.66)
 * [networkx](https://pypi.python.org/pypi/networkx/) (version 1.11)
 
@@ -17,7 +17,7 @@ The workflow uses several python packages and external tools that have to be ins
 * [cutadapt](https://cutadapt.readthedocs.io/en/stable/) (version 1.9.1)
 * [vsearch](https://github.com/torognes/vsearch) (version 2.4.3)
 * [lambda](https://seqan.github.io/lambda/) (version 1.9.2)
-* [itsx](http://microbiology.se/software/itsx/) (vesrion 1.0.11)
+* [itsx](http://microbiology.se/software/itsx/) (version 1.0.11)
 * [blasr](https://github.com/PacificBiosciences/blasr)   (github version from [Oct 13, 2016](https://github.com/PacificBiosciences/blasr/tree/16b158dd09d79fc6274da11fa154c45f0f689ef0))
 ### Databases
 * [UNITE](https://unite.ut.ee/) (20.11.2016)

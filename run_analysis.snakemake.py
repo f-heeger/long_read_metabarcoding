@@ -86,8 +86,7 @@ include: "chimera_analysis.snakemake.py"
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: expand(["taxonomy/{set}_97_comb.class.tsv", "{set}_clsComp_depth.svg", "{set}_clsComp_depth_fungi.svg", "{set}_clsComp_basic.svg"], set=["all", "stechlin"]), "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg"#, "taxonomy/isolates_97_comb.class.tsv"
-#    input: expand("primers/{sample}_primer.fasta", sample=samples)
+    input: expand(["taxonomy/{set}_97_comb.class.tsv", "{set}_clsComp_depth.svg", "{set}_clsComp_depth_fungi.svg", "{set}_clsComp_basic.svg"], set=["all", "stechlin"]), "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), 
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""

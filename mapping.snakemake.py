@@ -326,7 +326,7 @@ rule createFullRefAnnoation:
 
 rule fullRawMapping:
     """Map raw reads against isolate sequences with blasr"""
-    input: reads="raw/{sample}.fastq", ref="fullRef/isolateSeqs.fasta"
+    input: reads="%(inFolder)s/{sample}.fastq" % config, ref="fullRef/isolateSeqs.fasta"
     output: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5"
     threads: 6
     shell: 
@@ -342,7 +342,7 @@ rule fullMapping:
 
 rule getFullRawCls:
     """Create table with assignment (including chimera) for each raw read"""
-    input: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5", fastq="raw/{sample}.fastq"
+    input: m5="mapping/fullMapping/{sample}_raw_vs_isolates.m5", fastq="%(inFolder)s/{sample}.fastq" % config
     output: matches="mapping/fullMatches/match_{sample}_raw_isolates.tsv", assign="mapping/assignment/{sample}_raw_assignments.tsv"
     run:
         data={}

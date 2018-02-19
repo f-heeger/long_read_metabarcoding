@@ -620,6 +620,23 @@ rule collectClsStats:
                 out.write("%s\t%i\tits\t%s\t%i\n" % (oId, size, "\t".join([itsCls[r] for r in ranks]), itsDepth))
                 out.write("%s\t%i\tlsu\t%s\t%i\n" % (oId, size, "\t".join([lsuCls[r] for r in ranks]), lsuDepth))
 
+rule clsSummary:
+    """Collect some summary stats of how many OTUs were assigend to taxonomic 
+    ranks for the paper abstract"""
+    input: "taxonomy/{sampleSet}_97_comb.stats.tsv"
+    output: "taxonomy/{sampleSet}_97_clsStats.tsv"
+    run:
+        R("""
+        d=read.table("{input}", sep="\t")
+        colnames(d) = c("oId", "size", "mrk", "domain", "kingdom", "phylum", "class", "order", "family", "genus", "species", "depth")
+        a=aggregate(depth ~ oId, subset(d, size>1), max)
+        ranks=c("kingdom", "phylum", "class", "order", "family", "genus", "species")
+        s = data.frame(rank=numeric(0), nubmer=numeric(0))
+        for (i in 1:7) {{
+            s = rbind(s, data.frame(rank=ranks[i], number=sum(a$depth>=i)))
+        }}
+        write.table(s, "{output}", sep="\t", row.names=F)
+        """)
 
 rule plotClsComp:
     """Create plots of classifications depth"""

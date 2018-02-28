@@ -142,8 +142,8 @@ rule windowQualFilter:
                 logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
 
 rule catWindowQual:
-    """concatenate window quality data for all samples"""
-    input: expand("windowQualFilter/Lib{libNr}-0075_stat.tsv", libNr=range(1,9)), expand("windowQualFilter/Lib{libNr}-0034_stat.tsv", libNr=[1,2,3,5,6,7,8]), "windowQualFilter/Lib4-0018_stat.tsv"
+    """concatenate window quality data for all environmental samples"""
+    input: expand("windowQualFilter/{sample}_stat.tsv", sample=samples)
     output: "windowQualFilter/envStats.tsv"
     shell:
         "cat {input} > {output}"
@@ -183,7 +183,7 @@ rule fastq2fasta:
 
 rule readNumbers_raw:
     """Count raw reads"""
-    input: raw=expand("raw/{sample}.fastq", sample=allSamples)
+    input: raw=expand("%(inFolder)s/{sample}.fastq" % config, sample=allSamples)
     output: "readNumbers/rawReadNumbers.tsv"
     run:
         with open(output[0], "w") as out:
@@ -333,9 +333,9 @@ rule plotReadNumber:
         d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
 
         d$group=NA
-        d[d$sample %in% c("Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"),]$group="stechlin"
-        d[d$sample=="Lib4-0018" | d$lib=="Run2",]$group="mock_community"
-        d[d$lib=="Lib0" | (d$lib!="Run2" & d$bc %in% c(9, 27, 56, 95)),]$group="isolate"
+        d[d$sample %%in%% c("%(stechlin)s"),]$group="stechlin"
+        d[d$sample %%in%% c("%(mock)s"),]$group="mock_community"
+        d[d$sample %%in%% c("%(isolate)s"),]$group="isolate"
 
         at=numeric(0)
         ar=numeric(0)
@@ -361,10 +361,14 @@ rule plotReadNumber:
         ggplot(subset(ar, stage!="raw"), aes(x=stage, y=mean, fill=group)) + geom_bar(stat="identity") + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2) + labs(y="proportion of reads remaining") + facet_grid(group~.)
         ggsave("{output.graph}", width=16, height=10)
 
-        outtab=dcast(d[!is.na(d$group),], group+sampleName~stage, value.var="number")
+        outtab=dcast(d[!is.na(d$group),], group+sampleName~stage, fun.aggregate=sum, value.var="number")
         outtab=outtab[order(outtab$group, outtab$sampleName),]
         write.table(outtab, "{output.tab}", quote=F, sep="\t", col.names=T, row.names=F)
-        """)
+        """ % {"stechlin": '","'.join([sId for sId, sName in sampleInfo["sampleName"].items() if sName.startswith("STN")]),
+               "mock": '","'.join([sId for sId, sType in sampleInfo["sampleType"].items() if sType == "mock"]),
+               "isolate": '","'.join([sId for sId, sType in sampleInfo["sampleType"].items() if sType == "isolate"])
+              }
+        )
         
 rule prepPrecluster:
     """Prepare reads for pre-clustering i.e. sort them by mean quality"""

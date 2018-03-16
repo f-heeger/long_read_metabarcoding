@@ -26,7 +26,9 @@ The workflow uses several python packages and external tools that have to be ins
 
 
 ## Running the analysis
-After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with snakemake -s run_analysis.snakemake.py.
+After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with `snakemake -s run_analysis.snakemake.py`. You might also want to use `-j` to give multiple processors to snakemake.
+
+Note that this pipeline is at the moment only set up to run on our data, but probably can be addapted to run on other data sets.
 
 ## Rules
 

@@ -17,8 +17,6 @@ configfile: "config.json"
 sampleInfo = json.load(open("samples.json"))
 
 samples = [sId for sId, sType in sampleInfo["sampleType"].items() if sType == "env"]
-#expand("Lib{nr}-0075", nr=range(1,9)) + expand("Lib{nr}-0034", nr=[1,2,3,5,6,7,8])
-stechlin = [sId for sId, sName in sampleInfo["sampleName"].items() if sName.startswith("STN")] #"Lib3-0075", "Lib3-0034", "Lib7-0075", "Lib7-0034"
 isolates = {}
 for sId, sType in sampleInfo["sampleType"].items():
     if sType == "isolate":
@@ -26,53 +24,12 @@ for sId, sType in sampleInfo["sampleType"].items():
             isolates[sampleInfo["sampleName"][sId]].append(sId)
         except KeyError:
             isolates[sampleInfo["sampleName"][sId]] = [sId]
-#isolates = {"CA": ["Lib1-0009", "Lib5-0009"],
-#            "SC": ["Lib3-0009", "Lib7-0009"],
-#            "CL": ["Lib1-0095", "Lib6-0095"],
-#            "EV": ["Lib4-0027", "Lib5-0027"],
-#            "PB": ["Lib7-0056", "Lib8-0056"],
-#            "CHY1": ["Lib0-0009"],
-#            "TR": ["Lib0-0056"], 
-#            "PC": ["Lib1-0027", "Lib2-0027"],
-#            "Csp": ["Lib1-0056", "Lib3-0056"],
-#            "Psp": ["Lib7-0095", "Lib8-0095"],
-#            "CR": ["Lib0-0075"],
-#            "ME": ["Lib2-0056", "Lib4-0056"],
-#            "UM": ["Lib2-0009", "Lib6-0009"],
-#            "LS": ["Lib3-0027", "Lib7-0027"],
-#            "DT": ["Lib3-0095", "Lib5-0095"],
-#            "IF": ["Lib6-0027", "Lib8-0027"],
-#            "MR": ["Lib4-0009", "Lib8-0009"]
-#            }
 
 allSamples = list(sampleInfo["sampleName"].keys())
-#allSamples = samples + expand("Run2-00{bc}", bc=["09","34", "18", "56","27", "75"]) + ["Lib4-0018"] 
-#for s in isolates.values():
-#    allSamples.extend(s)
 
 sampleName = sampleInfo["sampleName"]
-#sampleName = {"Lib1-0075": "GRB_l_w", "Lib1-0034": "GRB_p_w",
-#              "Lib5-0075": "GRB_l_s", "Lib5-0034": "GRB_p_s",
-#              "Lib2-0075": "DGW_l_w", "Lib2-0034": "DGW_p_w",
-#              "Lib6-0075": "DGW_l_s", "Lib6-0034": "DGW_p_s",
-#              "Lib3-0075": "STN_l_w", "Lib3-0034": "STN_p_w",
-#              "Lib7-0075": "STN_l_s", "Lib7-0034": "STN_p_s",
-#              "Lib4-0075": "FUKUSW_l_w",
-#              "Lib8-0075": "FUKUSW_l_s", "Lib8-0034": "FUKUSW_p_s",
-#              "Run2-0009": "mock_emPCR", "Run2-0018": "mock_i8c13",
-#              "Run2-0027": "mock_i8c15", "Run2-0056": "mock_i8c18", 
-#              "Run2-0075": "mock_i8c25", "Run2-0095": "mock_i2c18", 
-#              "Run2-0034": "mock_i20c18", "Lib4-0018": "mock_i8c30"}
-
-#for name, iSamples in isolates.items():
-#    for s, sId in enumerate(iSamples):
-#        sampleName[sId] = "%s%i" % (name, s+1)
 
 mockSamples = [sId for sId, sType in sampleInfo["sampleType"].items() if sType == "mock"]
-#mockSamples=[]
-#for sample, name in sampleNames:
-#    if name.startswith("mock_"):
-#        mockSamples.append(sample)
 
 ####################################################################
 # includes

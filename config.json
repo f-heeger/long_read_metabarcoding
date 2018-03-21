@@ -6,7 +6,6 @@
     "lambdaFolder": "/home/heeger/bin/lambda-1.9.2-Linux-x86_64_sse4/bin",
     "itsx" : "/home/heeger/bin/ITSx_1.0.11/ITSx",
     "blasr": "/home/heeger/bin/blasr/blasr",
-    "mafft": "mafft",
     "fastq-dump": "/home/heeger/bin/sratoolkit.2.9.0-ubuntu64/bin/fastq-dump",
     "dbFolder": "dbs",
     "uniteVersion": "20.11.2016",

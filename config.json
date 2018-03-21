@@ -7,11 +7,12 @@
     "itsx" : "/home/heeger/bin/ITSx_1.0.11/ITSx",
     "blasr": "/home/heeger/bin/blasr/blasr",
     "mafft": "mafft",
+    "fastq-dump": "/home/heeger/bin/sratoolkit.2.9.0-ubuntu64/bin/fastq-dump",
     "dbFolder": "dbs",
     "uniteVersion": "20.11.2016",
     "silvaVersion": "128",
     "rdpVersion": "11.5",
     "fwd_primer" : "CAGTAGTCATATGCTTGTC",
     "rev_primer" : "ACCTATGTTTTAATTAGACAGTCAG",
-    "inFolder": "/home/heeger/spree_nobackup/NO_BACKUP/heeger/PacBioMetabarcoding3c/raw"
+    "inFolder": "raw"
 }

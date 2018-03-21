@@ -1,20 +1,10 @@
-rule unpack:
-    input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC1+2_barcoded-fastqs.tgz" % config
-    output: dynamic("%(inFolder)s/Lib{cellNr}_1+2/{barcode}_Forward--{barcode}_Forward.fastq" % config)
-    shell:
-        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_1+2; touch %(inFolder)s/Lib{wildcards.cellNr}_1+2/*.fastq" % config
 
-rule unpackThird:
-    input: "%(inFolder)s/8_libs_Mar17/Ampl.Lib{cellNr}.SC3_barcoded-fastqs.tgz" % config
-    output: dynamic("%(inFolder)s/Lib{cellNr}_3/{barcode}_Forward--{barcode}_Forward.fastq" % config)
-    shell:
-        "mkdir -p %(inFolder)s/Lib{wildcards.cellNr}; tar -xzf {input} -C %(inFolder)s/Lib{wildcards.cellNr}_3; touch %(inFolder)s/Lib{wildcards.cellNr}_3/*.fastq" % config
-
-rule concatRawfiles:
-    input: "%(inFolder)s/Lib{cellNr}_1+2/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config, "%(inFolder)s/Lib{cellNr}_3/{barcode,\d+}_Forward--{barcode,\d+}_Forward.fastq" % config
-    output: "%(inFolder)s/Lib{cellNr}-{barcode,\d+}.fastq" % config
-    shell:
-        "cat {input} > {output}"
+rule getData:
+    """Download read data from the SRA"""
+    output: "%(inFolder)s/{sample}.fastq" % config
+    run:
+        sId = sampleInfo["sraID"][wildcards.sample]
+        shell("%(fastq-dump)s" % config + " %s -Z > {output}" % sId)
 
 rule fastqc:
     """Run fastqc an all samples"""
@@ -25,7 +15,7 @@ rule fastqc:
 
 rule multiqc:
     """Combine QC reports into one with multiqc"""
-    input: expand("QC/{sample}_fastqc.html", sample=samples)
+    input: expand("QC/{sample}_fastqc.html", sample=allSamples)
     output: "QC/multiqc_report.html", "QC/multiqc_data/multiqc_fastqc.txt"
     shell:
         "%(multiqc)s -f --interactive -o QC QC/*_fastqc.zip" % config

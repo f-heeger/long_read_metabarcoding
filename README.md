@@ -19,6 +19,7 @@ The workflow uses several python packages and external tools that have to be ins
 * [lambda](https://seqan.github.io/lambda/) (version 1.9.2)
 * [itsx](http://microbiology.se/software/itsx/) (version 1.0.11)
 * [blasr](https://github.com/PacificBiosciences/blasr)   (github version from [Oct 13, 2016](https://github.com/PacificBiosciences/blasr/tree/16b158dd09d79fc6274da11fa154c45f0f689ef0))
+* [SRA Toolkit](https://www.ncbi.nlm.nih.gov/sra/docs/toolkitsoft/) (version 2.9.0)
 ### Databases
 * [UNITE](https://unite.ut.ee/) (20.11.2016)
 * [SILVA](https://www.arb-silva.de/) (128)

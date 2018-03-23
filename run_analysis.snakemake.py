@@ -43,19 +43,12 @@ include: "chimera_analysis.snakemake.py"
 
 rule all:
 #    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: expand(["taxonomy/{set}_97_comb.class.tsv", "{set}_clsComp_depth.svg", "{set}_clsComp_depth_fungi.svg", "{set}_clsComp_basic.svg"], set=["all", "stechlin"]), "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), 
+    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), 
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""
     input: expand("itsx/{sample}.{{marker}}.fasta", sample=samples)
     output: "catItsx/all.{marker}.fasta"
-    shell:
-        "cat {input} > {output}"
-
-rule concatStechlin:
-    """Concatenate ITSx results for Stechlin samples"""
-    input: expand("itsx/{sample}.{{marker}}.fasta", sample=stechlin)
-    output: "catItsx/stechlin.{marker}.fasta"
     shell:
         "cat {input} > {output}"
 
@@ -74,8 +67,6 @@ def otuInput(wildcards):
     """determine input file for OTU clustering according to sample wildcard"""
     if wildcards.sample == "all":
         return "catItsx/all.full.fasta"
-    elif wildcards.sample == "stechlin":
-        return "catItsx/stechlin.full.fasta"
     elif wildcards.sample in isolates:
         return "isolates/%s.full.fasta" % wildcards.sample
     else:
@@ -94,8 +85,6 @@ def otuReadsInput(wildcards):
     """determine input data for otuReads rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["otus/all_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=samples)
-    elif wildcards.sample == "stechlin":
-        return ["otus/stechlin_%sotus.uc.tsv" % wildcards.ident] + expand("preclusters/{sample}_cluInfo.tsv", sample=stechlin)
     elif wildcards.sample in isolates:
         return ["otus/%s_%sotus.uc.tsv" % (wildcards.sample, wildcards.ident)] + expand("preclusters/{sample}_cluInfo.tsv", sample=isolates[wildcards.sample])
     else:
@@ -164,8 +153,6 @@ def transferOtusInput(wildcards):
     """determine input data for transferOtus rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["otus/all_%sotu_repSeq.pic" % wildcards.ident, "catItsx/all.%s.fasta" % wildcards.marker]
-    elif wildcards.sample == "stechlin":
-        return ["otus/stechlin_%sotu_repSeq.pic" % wildcards.ident, "catItsx/stechlin.%s.fasta" % wildcards.marker]
     elif wildcards.sample in isolates:
         return ["otus/%s_%sotu_repSeq.pic" % (wildcards.sample, wildcards.ident), "isolates/%s.%s.fasta" % (wildcards.sample, wildcards.marker)]
     else:
@@ -842,8 +829,6 @@ def plotChimeraEnvInput(wildcards):
     """determine input data for plotChimera rule according to sample wildcard"""
     if wildcards.sample == "all":
         return ["denovoChimera/%s.chimeraReport.tsv" % s for s in samples]
-    elif wildcards.sample == "stechlin":
-        return ["denovoChimera/%s.chimeraReport.tsv" % s for s in stechlin]
     elif wildcards.sample in isolates:
         return ["denovoChimera/%s.chimeraReport.tsv" % s for s in isoaltes[wildcards.sample]]
     else:

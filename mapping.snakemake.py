@@ -438,8 +438,8 @@ rule plotErrorRate:
         library(ggplot2)
         library(reshape2)
 
-        env=c("DGW_l_s", "DGW_l_w", "DGW_p_s", "DGW_p_w", "FUKUSW_l_s", "FUKUSW_l_w", "FUKUSW_p_s", "GRB_l_s", "GRB_l_w", "GRB_p_s", "GRB_p_w", "STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
-        mock=paste("mock", c("emPCR", "i20c18", "i2c18", "i8c13", "i8c15", "i8c18", "i8c25", "i8c30"), sep="_")
+        env=c("STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
+        mock=c("emPCR", "c18i20", "c18i2", "c13i8", "c15i8", "c18i8", "c25i8", "c30i8")
 
         d=read.table("{input}")
 
@@ -463,7 +463,7 @@ rule plotAssignment:
         R("""
         library(ggplot2)
         
-        env=c("DGW_l_s", "DGW_l_w", "DGW_p_s", "DGW_p_w", "FUKUSW_l_s", "FUKUSW_l_w", "FUKUSW_p_s", "GRB_l_s", "GRB_l_w", "GRB_p_s", "GRB_p_w", "STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
+        env=c("STN_l_s", "STN_l_w", "STN_p_s", "STN_p_w")
         
         d=read.table("{input}")
         colnames(d) = c("sampleId", "sampleName", "readID", "cls", "alnLen", "sub", "ins", "del")

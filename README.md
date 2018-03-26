@@ -1,10 +1,14 @@
 # Long Read Metabarcoding
-This pipeline was developed to analyze PacBio CSS amplicon data of the fungi rRNA operon, but might also be useful for other eukaryotes and with different primers. 
+This pipeline was developed to analyze PacBio CSS amplicon data of the fungi rRNA operon, but might also be useful for other eukaryotes and with different primers.
+
+The results of this analysis are described in our manuscript: [*Long-read DNA metabarcoding of ribosomal rRNA in the analysis of fungi from aquatic environments*](https://www.biorxiv.org/content/early/2018/03/15/283127).
+
+The exact version used for the results in teh manuscript can be found as release v1.0.
 
 ## Dependecies
 The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/stable/) work flow. It contains a mix of rules directly written in python and rules that call external tools. The path for external tools can be defined in the config.json file.
 
-The workflow uses several python packages and external tools that have to be installed. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
+The workflow uses several python packages and external tools that have to be installed. They were tested with the version given below, but newer versions might work as well. In addition three different database are used as reference, that will be downloaded automatically in the version given in the config file.
 
 ### Python pakages
 * [snakemake](http://snakemake.readthedocs.io/en/stable/) (version 3.5.5)
@@ -27,9 +31,19 @@ The workflow uses several python packages and external tools that have to be ins
 
 
 ## Running the analysis
-After configuring paths and making sure the input files are available in the input folder given in the config file, the analysis can be run with `snakemake -s run_analysis.snakemake.py`. You might also want to use `-j` to give multiple processors to snakemake.
+The pipeline is setup to reproduce the analysis in the manuscript, but can be adapted to work on other data as well.
 
-Note that this pipeline is at the moment only set up to run on our data, but probably can be addapted to run on other data sets.
+After installing depnedencies and configuring paths in the config file (`config.json`), the analysis can be run with `snakemake -s run_analysis.snakemake.py` (the other snakemake files are included in this one). You might also want to use `-j` to give multiple processors to snakemake. 
+
+The following resulting files were used in the manusript (with some adjustment for readability):
+
+* Figure 2: `chimeraCyclesRelativeBarplot.svg`
+* Figure 3: was created from `mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv`, `mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv` and `mock/clusterGraph/Lib4-0018_clusterGraphClsLab.tsv` using Cytoscape
+* Figure 4: `all_clsComp_depth_fungi.svg`
+* Figure 5: `all_clsDiffStat.svg`
+
+Interesting graphs about error rates and read assignment that were not used in the manuscript can be found in the `mapping` folder.
+
 
 ## Rules
 

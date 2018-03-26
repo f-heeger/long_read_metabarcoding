@@ -1,23 +1,7 @@
-import pickle
-import math
 
-from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
 
-import networkx as nx
-
-from snakemake.utils import min_version, R
-
-shell.prefix("sleep 10; ") #work around to desl with "too quck" rule execution and slow samba
-
-configfile: "config.json"
-
-rule all:
-    input: "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", expand("mock/clusterAln/Lib4-0018_compAln_0_{marker}.fasta", marker=["SSU", "ITS1", "58S", "ITS2", "LSU"]),
-
-rule itsx:
+rule indiItsx:
+    """Run ITSx on each non-chimeric pre-cluster """
     input: "refChimera/{sample}.nochimera.fasta"
     output: "mock/itsx/{sample}.SSU.fasta", "mock/itsx/{sample}.ITS1.fasta", "mock/itsx/{sample}.5_8S.fasta", "mock/itsx/{sample}.ITS2.fasta", "mock/itsx/{sample}.LSU.fasta", "mock/itsx/{sample}.summary.txt", "mock/itsx/{sample}.positions.txt", "mock/itsx/{sample}.full.fasta"
     threads: 6
@@ -27,6 +11,7 @@ rule itsx:
         
 
 rule indiDerep:
+    """Dereplicate each marker independently"""
     input: "mock/itsx/{sample}.{marker}.fasta"
     output: fasta="mock/indiDerep/{sample}_{marker}.derep.fasta", info="mock/indiDerep/{sample}_{marker}.repseq.pic", txt="mock/indiDerep/{sample}_{marker}.uc.txt"
     log: "mock/logs/{sample}_{marker}_derep.log"
@@ -50,6 +35,7 @@ rule indiDerep:
         pickle.dump(repseq, open(output.info, "wb"))
 
 rule indiCluster:
+    """Cluster each marker independently"""
     input: "mock/indiDerep/{sample}_{marker}.derep.fasta"
     output: fasta="mock/indiCluster/{sample}_{marker}_clu.fasta", uc="mock/indiCluster/{sample}_{marker}_clu.uc.tsv"
     log: "mock/logs/{sample}_indiClustering_{marker}.log"
@@ -64,6 +50,7 @@ rule cp58s:
         "cp {input} {output}"
 
 rule indiCluReads:
+    """Collect information which read is in which cluster"""
     input: clsInfo="mock/indiCluster/{sample}_{marker}_clu.uc.tsv", repseq="mock/indiDerep/{sample}_{marker}.repseq.pic"
     output: info="mock/indiCluster/{sample}_{marker}_cluInfo.pic"
     run:
@@ -92,6 +79,10 @@ rule indiCluReads:
             pickle.dump(clusterReads, pOut)
 
 rule indiCluOverlap:
+    """Check which reads are in one cluster and which reads are shared between clusters.
+    
+       Generate information for edges (shared reads between clusters of diferent markers) and nodes (read per cluster) in the cluster graph.
+    """
     input: ssu="mock/indiCluster/{sample}_SSU_cluInfo.pic", its1="mock/indiCluster/{sample}_ITS1_cluInfo.pic", r58s="mock/indiCluster/{sample}_58S_cluInfo.pic", its2="mock/indiCluster/{sample}_ITS2_cluInfo.pic", lsu="mock/indiCluster/{sample}_LSU_cluInfo.pic"
     output: nodes="mock/clusterGraph/{sample}_clusterGraphNodes.tsv", edges="mock/clusterGraph/{sample}_clusterGraphEdges.tsv"
     params: minCluSize=3, minCluOverlap=3
@@ -128,6 +119,7 @@ rule indiCluOverlap:
                 out.write("%s\t%s\t%i\n" % e)
 
 rule findComponents:
+    """Find connected components in the cluster graph"""
     input: edges="mock/clusterGraph/{sample}_clusterGraphEdges.tsv", nodes="mock/clusterGraph/{sample}_clusterGraphNodes.tsv"
     output: comp="mock/clusterGraph/{sample}_components.txt"
     run:
@@ -147,6 +139,7 @@ rule findComponents:
                 out.write("\t".join(comp)+"\n")
 
 rule indiCluClass:
+    """Find classifications for each read to label the cluster graph with"""
     input: ssu="mock/indiCluster/{sample}_SSU_cluInfo.pic", its1="mock/indiCluster/{sample}_ITS1_cluInfo.pic", r58s="mock/indiCluster/{sample}_58S_cluInfo.pic", its2="mock/indiCluster/{sample}_ITS2_cluInfo.pic", lsu="mock/indiCluster/{sample}_LSU_cluInfo.pic", cls="mapping/assignment/{sample}_filtered_assignments.tsv", comp="mock/clusterGraph/{sample}_components.txt"
     output: tab="mock/clusterGraph/{sample}_components_class.tsv", lab="mock/clusterGraph/{sample}_clusterGraphClsLab.tsv", cls="mock/clusterGraph/{sample}_clusterGraphCls.tsv"
     run:
@@ -182,47 +175,3 @@ rule indiCluClass:
                         out.write("Comp%i\t%s\t%s\t%s\t%i\n" % (cNr, marker, clu, cls, count))
                     labOut.write("%s\t%s\n" % (clu, "+".join(["%s(%i)" % i for i in cluCls.items()])))
                     clsOut.write("%s\t%s\n" % (clu, "\t".join([str(cluCls.get(c, 0)) for c in clsOrder])))
-
-rule componentAlign:
-    input: comp="mock/clusterGraph/{sample}_components.txt", fasta="mock/itsx/{sample}.{marker}.fasta", info="mock/indiCluster/{sample}_{marker}_cluInfo.pic"
-    output: dynamic("mock/clusterAln/{sample}_compAln_{comp}_{marker}.fasta")
-    log: comp="mock/logs/{sample}_components.log", aln="mock/logs/{sample}_cluAlign.log"
-    threads: 6
-    run:
-        with open(log.comp, "w") as logFile:
-            seqRecs = {}
-            for rec in SeqIO.parse(open(input.fasta), "fasta"):
-                seqRecs[rec.id.split("|", 1)[0]] = rec
-            readInfo=pickle.load(open(input.info, "rb"))
-            for l,line in enumerate(open(input.comp)):
-                comp = line.strip().split("\t")
-                markers = {}
-                for clu in comp:
-                    try:
-                        markers[clu.rsplit("|", 1)[-1]].append(clu)
-                    except KeyError:
-                        markers[clu.rsplit("|", 1)[-1]] = [clu]
-                
-                baseFileName = "mock/clusterAln/tmp_comp%i_%s" % (l, wildcards.marker)
-                #write all reads in the component to temp file
-                readFilePath = "%s_reads.fasta" % baseFileName
-                alignmentPath="mock/clusterAln/%s_compAln_%i_%s.fasta" % (wildcards.sample, l, wildcards.marker)
-                if wildcards.marker=="58S":
-                    marker="5.8S"
-                else:
-                    marker=wildcards.marker
-                with open(readFilePath, "w") as readFile:
-                    if marker not in markers:
-                        logFile.write("No %s for component %i" % (marker, l))
-                        #create dummy file 
-                        open(alignmentPath, "w")
-                        continue
-                    for c, clu in enumerate(markers[marker]):
-                        for readId in readInfo[clu]:
-                            rec = seqRecs[readId]
-                            rec.id = "%s|%s" % (c, rec.id)
-                            readFile.write(rec.format("fasta"))
-                #run alignment
-                shell("%(mafft)s" % config + " --op 0.5 --ep 0.5 --thread {threads} %s > %s 2> {log.aln}" % (readFilePath, alignmentPath))
-                shell("rm mock/clusterAln/tmp_*")
-

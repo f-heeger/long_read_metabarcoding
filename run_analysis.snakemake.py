@@ -1,5 +1,6 @@
 import pickle
 import json
+import math
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -38,11 +39,12 @@ include: "createDBs.snakemake.py"
 include: "readProcessing.snakemake.py"
 include: "mapping.snakemake.py"
 include: "chimera_analysis.snakemake.py"
+include: "mockAnalysis.snakemake.py"
 
 ####################################################################
 
 rule all:
-    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), "readNumbers.svg"
+    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), "readNumbers.svg", "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphClsLab.tsv"
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""

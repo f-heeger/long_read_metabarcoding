@@ -42,8 +42,7 @@ include: "chimera_analysis.snakemake.py"
 ####################################################################
 
 rule all:
-#    input: "readNumbers.pdf", expand("chimera/{sample}.nochimera.fasta", sample=samples)   
-    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), 
+    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), "readNumbers.svg"
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""
@@ -615,21 +614,6 @@ rule plotClsComp:
         ggsave("{output.block}", width=16, height=10)
         """)
 
-#rule plotDephtOverview:
-#    input: "taxonomy/all_97_comb.stats.tsv"
-#    output: "classificationDepth.svg"
-#    params: minSize=5
-#    run:
-#        R("""
-#        library(ggplot2)
-#        
-#        d=read.table("{input}", sep="\t")
-#        colnames(d) = c("oId", "size", "marker", "phylum", "depth")
-#        d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
-#        
-#        ggplot(d[d$size>={params.minSize},]) + geom_bar(aes(factor(depth), weight=size)) + facet_grid(.~marker) + scale_x_discrete(labels=c("NA", "kingdom", "phylum", "class", "order", "family", "genus", "species")) + coord_flip() + labs(y="read count", x="classfied to") + theme_bw()
-#        ggsave("{output}", width=16, height=10)
-#        """)
 
 rule compareCls:
     """Compare classifications from different markers for plotting with ggplot

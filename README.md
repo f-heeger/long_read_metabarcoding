@@ -3,7 +3,7 @@ This pipeline was developed to analyze PacBio CSS amplicon data of the fungi rRN
 
 The results of this analysis are described in our manuscript: [**Long-read DNA metabarcoding of ribosomal rRNA in the analysis of fungi from aquatic environments**](https://www.biorxiv.org/content/early/2018/03/15/283127).
 
-The exact version used for the results in teh manuscript can be found as (release v1.0)[https://github.com/f-heeger/long_read_metabarcoding/releases/tag/v1.0].
+The exact version used for the results in teh manuscript can be found as [release v1.0](https://github.com/f-heeger/long_read_metabarcoding/releases/tag/v1.0).
 
 ## Dependecies
 The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/stable/) work flow. It contains a mix of rules directly written in python and rules that call external tools. The path for external tools can be defined in the config.json file.

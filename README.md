@@ -45,8 +45,6 @@ The following resulting files were used in the manusript (with some adjustment f
 Interesting graphs about error rates and read assignment that were not used in the manuscript can be found in the `mapping` folder.
 
 ## Adapting the pipeline for your data
-The full analysis in this pipeline is specific to our setup with a mock community and 
-
 The full analysis in this pipeline is specific to our setup with a mock community and isolate samples, but the actual metabarcoding part can be run on its own on other data as well. 
 
 ### Input Data
@@ -83,8 +81,8 @@ __[its|ssu|lsu]itsMinCoverage__ (default 85.0): Minimum acceptable coverage valu
 __[its|ssu|lsu]itsLcaStringency__ (default 0.9): Minimum percentage of same classification of all accepted alignments at each taxonomic rank for a classification to be accepteed during LCA
 
 
-###Running the metabarcoding analysis
-`snakemake -s run_analysis.snakemake.py metabarcoding` will run only the metabarcoding part of the analysis. You might also want to use `-j` to give multiple processors to snakemake. This will crete two files. An OTU-table (`all_otu97_table.tsv`) with the following columns: OTU ID, total number of reads in this OTU, SSU classification, ITS classification, LSU classification and onw cloumn per sample with the number of reads in this OTU for this sample. And a graph of classification depth with the three markers of the most abundand OTUs (`all_clsComp_depth.svg`).
+### Running the metabarcoding analysis
+`snakemake -s run_analysis.snakemake.py metabarcoding` will run only the metabarcoding part of the analysis. You might also want to use `-j` to give multiple processors to snakemake. This will crete two files. An OTU-table (`all_otu97_table.tsv`) with the following columns: OTU ID, total number of reads in this OTU, SSU classification, ITS classification, LSU classification and one cloumn per sample with the number of reads in this OTU for this sample. And a graph of classification depth with the three markers of the most abundand OTUs (`all_clsComp_depth.svg`).
 
 The identity thrshold for clustering can be changed by running the pipeline with specific output file names. E.g. `snakemake -s run_analysis.snakemake.py all_otu98_table.tsv` to create an OTU table with a similarity threshold of 98 instead of 97.
     

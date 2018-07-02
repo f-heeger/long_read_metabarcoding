@@ -44,7 +44,10 @@ include: "mockAnalysis.snakemake.py"
 ####################################################################
 
 rule all:
-    input: "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), "readNumbers.svg", "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphClsLab.tsv"
+    input: "all_otu97_table.tsv", "taxonomy/all_97_comb.class.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsComp_basic.svg", "all_clsDiffStat.svg", "taxonomy/Lib4-0018_97_combToCorr.class.tsv", "chimeraCyclesRelativeBarplot.svg", "chimera_comp_sankey.svg", expand(["mapping/{stage}MockComp.svg", "mapping/{stage}ErrorRates.svg"], stage=["raw", "filtered"]), "readNumbers.svg", "mock/clusterGraph/Lib4-0018_clusterGraphCls.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphEdges.tsv", "mock/clusterGraph/Lib4-0018_clusterGraphClsLab.tsv"
+
+rule metabarcoding:
+    input: "all_otu97_table.tsv", "all_clsComp_depth.svg"
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""
@@ -187,9 +190,14 @@ rule classifyITS:
     """Classify OTU based on ITS matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_vs_UNITE.m8", tax="%(dbFolder)s/UNITE_%(uniteVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_ITS.class.tsv"
-    params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/{sample}_{ident}otuClass.log", "logs/{sample}_{ident}otu_itsTax.log"
     run:
+        maxE = config["itsMaxEvalue"]
+        topPerc = config["itsTopPercent"]
+        minIdent = config["itsMinIdentity"]
+        minCov = config["itsMinCoverage"]
+        stringecny = config["itsLcaStringency"]
+        
         taxDict = {}
         for line in open(input.tax):
             sh, tax = line.strip().split("\t")
@@ -207,14 +215,14 @@ rule classifyITS:
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
             readId = qseqid.split("|")[0]
-            if float(evalue) > params.maxE:
+            if float(evalue) > maxE:
                 evalueFilter += 1
                 continue
-            if float(pident) < params.minIdent:
+            if float(pident) < minIdent:
                 identFilter +=1
                 continue
             mLen = min(int(qlen), int(slen))
-            if float(length)/mLen*100 < params.minCov:
+            if float(length)/mLen*100 < minCov:
                 covFilter += 1
                 continue
             linStr = taxDict[sseqid]
@@ -223,10 +231,10 @@ rule classifyITS:
             except KeyError:
                 classifi[readId] = [(linStr, float(bitscore))]
         logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
-        logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
-        logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
-        logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
-        topPerc = params.topPerc/100.0
+        logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, maxE))
+        logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, minIdent))
+        logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, minCov))
+        topPerc = topPerc/100.0
         with open(output[0], "w") as out:
             for key, hits in classifi.items():
                 sortedHits = sorted(hits, key=lambda x: x[1])[::-1]
@@ -236,7 +244,7 @@ rule classifyITS:
                 goodHits = [hit[0] for hit in sortedHits[:cutoff]]
                 for h in goodHits:
                     logTax.write("%s\t%s\n" % (key, h))
-                lineage = lca(goodHits, params.stringency)
+                lineage = lca(goodHits, stringency)
                 out.write("%s\t%s\n" % (key, lineage))
         try:
             logOut.close()
@@ -260,9 +268,13 @@ rule classifySSU:
     """Classify OTU based on SSU matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_SSU_vs_SILVA.m8", tax="%(dbFolder)s/SILVA_%(silvaVersion)s_SSU_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_SSU.class.tsv"
-    params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/{sample}_SSU_{ident}otuClass.log", "logs/{sample}_{ident}otu_SSU_tax.log", "logs/{sample}_{ident}otu_SSU_tiling.log"
     run:
+        maxE = config["ssuMaxEvalue"]
+        topPerc = config["ssuTopPercent"]
+        minIdent = config["ssuMinIdentity"]
+        minCov = config["ssuMinCoverage"]
+        stringecny = config["ssuLcaStringency"]
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
@@ -281,10 +293,10 @@ rule classifySSU:
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
             otuId = qseqid.split("/")[0]
-            if float(evalue) > params.maxE:
+            if float(evalue) > maxE:
                 evalueFilter += 1
                 continue
-            if float(pident) < params.minIdent:
+            if float(pident) < minIdent:
                 identFilter +=1
                 continue
             if otuId not in hsp:
@@ -295,7 +307,7 @@ rule classifySSU:
                 sLen[sseqid] = int(slen)
             else:
                 hsp[otuId][sseqid].append((int(qstart), int(qend), float(bitscore)))
-        topPerc = params.topPerc/100.0
+        topPerc = topPerc/100.0
         with open(output[0], "w") as out, open(log[2], "w") as tLog, open(log[1], "w") as logTax:
             for otuId in hsp.keys():
                 hits = []
@@ -311,7 +323,7 @@ rule classifySSU:
                         totalScore += tHsp[i][2]
                     pathStr = ",".join(["%i-%i" % (tHsp[i][0], tHsp[i][1]) for i in used])
                     tLog.write("%s\t%s\t%i\t%i\t%s\t%f\t%f\n" % (otuId, sId, len(used), len(tHsp), pathStr, totalScore, totalScore/min(qLen[otuId], sLen[sId])))
-                    if totalLen/min(qLen[otuId], sLen[sId])*100 < params.minCov:
+                    if totalLen/min(qLen[otuId], sLen[sId])*100 < minCov:
                         covFilter += 1
                         continue
                     linStr = taxDict[sId]
@@ -326,13 +338,13 @@ rule classifySSU:
                     goodHits = [hit[0] for hit in sortedHits[:cutoff]]
                     for h, scr, mlen in sortedHits[:cutoff]:
                         logTax.write("%s\t%s\t%f\t%f\n" % (otuId, h, scr, scr*mlen))
-                    lineage = lca(goodHits, params.stringency)
+                    lineage = lca(goodHits, stringency)
                 out.write("%s\t%s\n" % (otuId, lineage))
         with open(log[0], "w") as logOut:
             logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
-            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
-            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
-            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
+            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, maxE))
+            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, minIdent))
+            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, minCov))
 
 rule alignToRdp:
     """Search for local sequence matches of LSU sequences in the RDP LSU database with lambda"""
@@ -347,9 +359,13 @@ rule classifyLSU:
     """Classify OTU based on LSU matches with LCA approach"""
     input: lam="lambda/{sample}.{ident}otu_LSU_vs_RDP.m8", tax="%(dbFolder)s/rdp_LSU_%(rdpVersion)s_tax.tsv" % config
     output: "taxonomy/{sample}_{ident}otu_LSU.class.tsv"
-    params: maxE=1e-6, topPerc=5.0, minIdent=80.0, minCov=85.0, stringency=.90
     log: "logs/{sample}_LSU_{ident}otuClass.log", "logs/{sample}_{ident}otu_LSU_tax.log", "logs/{sample}_{ident}otu_LSU_tiling.log"
     run:
+        maxE = config["lsuMaxEvalue"]
+        topPerc = config["lsuTopPercent"]
+        minIdent = config["lsuMinIdentity"]
+        minCov = config["lsuMinCoverage"]
+        stringecny = config["lsuLcaStringency"]
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
@@ -368,10 +384,10 @@ rule classifyLSU:
             total +=1
             qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qlen, slen = line.strip().split("\t")
             otuId = qseqid.split("/")[0]
-            if float(evalue) > params.maxE:
+            if float(evalue) > maxE:
                 evalueFilter += 1
                 continue
-            if float(pident) < params.minIdent:
+            if float(pident) < minIdent:
                 identFilter +=1
                 continue
             if otuId not in hsp:
@@ -382,7 +398,7 @@ rule classifyLSU:
                 sLen[sseqid] = int(slen)
             else:
                 hsp[otuId][sseqid].append((int(qstart), int(qend), float(bitscore)))
-        topPerc = params.topPerc/100.0
+        topPerc = topPerc/100.0
         with open(output[0], "w") as out, open(log[2], "w") as tLog, open(log[1], "w") as logTax:
             for otuId in hsp.keys():
                 hits = []
@@ -398,7 +414,7 @@ rule classifyLSU:
                         totalScore += tHsp[i][2]
                     pathStr = ",".join(["%i-%i" % (tHsp[i][0], tHsp[i][1]) for i in used])
                     tLog.write("%s\t%s\t%i\t%i\t%s\t%f\t%f\n" % (otuId, sId, len(used), len(tHsp), pathStr, totalScore, totalScore/min(qLen[otuId], sLen[sId])))
-                    if totalLen/min(qLen[otuId], sLen[sId])*100 < params.minCov:
+                    if totalLen/min(qLen[otuId], sLen[sId])*100 < minCov:
                         covFilter += 1
                         continue
                     linStr = taxDict[sId]
@@ -413,13 +429,13 @@ rule classifyLSU:
                     goodHits = [hit[0] for hit in sortedHits[:cutoff]]
                     for h, scr, mlen in sortedHits[:cutoff]:
                         logTax.write("%s\t%s\t%f\t%f\n" % (otuId, h, scr, scr*mlen))
-                    lineage = lca(goodHits, params.stringency)
+                    lineage = lca(goodHits, stringency)
                 out.write("%s\t%s\n" % (otuId, lineage))
         with open(log[0], "w") as logOut:
             logOut.write("%i alignmetns for %i sequences\n" % (total, seqNr))
-            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, params.maxE))
-            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, params.minIdent))
-            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, params.minCov))
+            logOut.write("%i excluded, because e-value was higher than %e\n" % (evalueFilter, maxE))
+            logOut.write("%i excluded, because identity was lower than %d%%\n" % (identFilter, minIdent))
+            logOut.write("%i excluded, because coverage was lower than %d%%\n" % (covFilter, minCov))
 
 rule combineCls:
     """Create table with OTU classifications with SSU, ITS, LSU"""

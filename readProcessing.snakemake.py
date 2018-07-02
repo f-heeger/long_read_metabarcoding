@@ -25,31 +25,32 @@ rule lengthFilter:
     input: fastq="%(inFolder)s/{sample}.fastq" % config
     output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
     log: "logs/{sample}_lenFilter.log"
-    params: maxLen = 6500, minLen = 3000
     run:
+        maxLen = config["maxReadLen"]
+        minLen = config["minReadLen"]
         nrLong = 0
         nrShort = 0
         with open(output.right, "w") as out, open(output.long, "w") as tooLong, open(output.short, "w") as tooShort:
             for read in SeqIO.parse(open(input[0]), "fastq"):
-                if len(read) <= params.minLen:
+                if len(read) <= minLen:
                     tooShort.write(read.format("fastq"))
                     nrShort += 1
-                elif len(read) <= params.maxLen:
+                elif len(read) <= maxLen:
                     out.write(read.format("fastq"))
                 else:
                     tooLong.write(read.format("fastq"))
                     nrLong += 1
         with open(log[0], "w") as logFile:
-            logFile.write("%i reads were removed because they were longer than %i\n" % (nrLong, params.maxLen))
-            logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, params.maxLen))
+            logFile.write("%i reads were removed because they were longer than %i\n" % (nrLong, maxLen))
+            logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, maxLen))
 
 rule qualityFilter:
     """Filter reads by minimum mean quality"""
     input: fastq="lenFilter/{sample}_rightLen.fastq"
     output: good="qualFilter/{sample}_goodQual.fastq", bad="qualFilter/{sample}_badQual.fastq", info="qualFilter/{sample}_qualInfo.tsv"
-    params: minQual=0.996
     log: "logs/{sample}_qualityFilter.log"
     run:
+        minQual = config["minReadQual"]
         removed = 0
         
         with open(output.good, "w") as out, open(output.bad, "w") as trash, open(output.info, "w") as info:
@@ -60,12 +61,12 @@ rule qualityFilter:
                     print(read.id)
                     raise
                 info.write("%s\t%f\n" % (read.id, 1-tError))
-                if (1-tError) < params.minQual:
+                if (1-tError) < minQual:
                     removed += 1
                     trash.write(read.format("fastq"))
                 else:
                     out.write(read.format("fastq"))
-        open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, params.minQual))
+        open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, minQual))
 
 rule qualityVsLength:
     """Generate data for plotting length vs quality"""
@@ -107,21 +108,22 @@ rule windowQualFilter:
     """Filter by sliding window mean quality"""
     input: fastq="qualFilter/{sample}_goodQual.fastq"
     output: good="windowQualFilter/{sample}_goodQual.fastq", stat="windowQualFilter/{sample}_stat.tsv"
-    params: winSize=8, minQual=0.9
     log: "logs/{sample}_winQualityFilter.log"
     run:
+        winSize = config["windowMinQuality"]
+        minQual = config["qualityWindowSize"]
         removed = 0
         with open(output.good, "w") as out, open(output.stat, "w") as statOut:
             for read in SeqIO.parse(open(input.fastq), "fastq"):
                 anyRemoved = False
-                for i in range(len(read)-params.winSize):
-                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+params.winSize] ]) / params.winSize
+                for i in range(len(read)-winSize):
+                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+winSize] ]) / winSize
                     tQual = 1 - tError
                     tRemoved=False
-                    if (tQual) < params.minQual:
+                    if (tQual) < minQual:
                         tRemoved = True
                         anyRemoved = True
-                    kmer=str(read.seq[i:i+params.winSize])
+                    kmer=str(read.seq[i:i+winSize])
                     hp = homopoly(kmer)
                     statOut.write("%s\t%s\t%i\t%i\t%f\t%s\t%s\t%i\t%i\t%i\t%i\t%i\n" % (wildcards.sample, read.id, i, len(read), tQual, tRemoved, kmer, kmer.count("A"), kmer.count("C"), kmer.count("G"), kmer.count("T"), hp))
                 if not anyRemoved:
@@ -129,7 +131,7 @@ rule windowQualFilter:
                 else:
                     removed += 1
             with open(log[0], "w") as logFile:
-                logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, params.winSize, params.minQual))
+                logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, winSize, minQual))
 
 rule catWindowQual:
     """concatenate window quality data for all environmental samples"""
@@ -144,14 +146,13 @@ rule filterPrimer:
     output: fastq="primers/{sample}_primer.fastq"
     log: "logs/{sample}_primer.log"
     threads: 3
-    params: minovl=10
     run:
-        shell("%(cutadapt)s -g forward=%(fwd_primer)s -g reverse=%(rev_primer)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_{{name}}.fastq {input} &> {log}" % config)
+        shell("%(cutadapt)s -g forward=%(fwd_primer)s -g reverse=%(rev_primer)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_{{name}}.fastq {input} &> {log}" % config)
         config["fwd_primer_rc"] = str(Seq(config["fwd_primer"], IUPACAmbiguousDNA()).reverse_complement())
         config["rev_primer_rc"] = str(Seq(config["rev_primer"], IUPACAmbiguousDNA()).reverse_complement())
         
-        shell("%(cutadapt)s -a forward=%(fwd_primer_rc)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_reverse_forward.fastq primers/{wildcards.sample}_reverse.fastq &>> {log}" % config)
-        shell("%(cutadapt)s -a reverse=%(rev_primer_rc)s -O {params.minovl} --trimmed-only -o primers/{wildcards.sample}_forward_reverse.fastq primers/{wildcards.sample}_forward.fastq &>> {log}" % config)
+        shell("%(cutadapt)s -a forward=%(fwd_primer_rc)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_reverse_forward.fastq primers/{wildcards.sample}_reverse.fastq &>> {log}" % config)
+        shell("%(cutadapt)s -a reverse=%(rev_primer_rc)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_forward_reverse.fastq primers/{wildcards.sample}_forward.fastq &>> {log}" % config)
         with open(output[0], "w") as out:
             for rec in SeqIO.parse(open("primers/%s_reverse_forward.fastq" % wildcards.sample), 
                                    "fastq"):

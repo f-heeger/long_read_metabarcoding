@@ -3,7 +3,7 @@ This pipeline was developed to analyze PacBio CSS amplicon data of the fungi rRN
 
 The results of this analysis are described in our manuscript: [**Long-read DNA metabarcoding of ribosomal rRNA in the analysis of fungi from aquatic environments**](https://www.biorxiv.org/content/early/2018/03/15/283127).
 
-The exact version used for the results in teh manuscript can be found as [release v1.0](https://github.com/f-heeger/long_read_metabarcoding/releases/tag/v1.0).
+The exact version used for the results in the manuscript can be found as [release v1.0](https://github.com/f-heeger/long_read_metabarcoding/releases/tag/v1.0).
 
 ## Dependecies
 The pipeline is implemented as [snakemake](http://snakemake.readthedocs.io/en/stable/) work flow. It contains a mix of rules directly written in python and rules that call external tools. The path for external tools can be defined in the config.json file.
@@ -30,10 +30,10 @@ The workflow uses several python packages and external tools that have to be ins
 * [RDP LSU](http://rdp.cme.msu.edu/misc/resources.jsp) (11.5)
 
 
-## Running the analysis
+## Re-running the analysis on our data
 The pipeline is setup to reproduce the analysis in the manuscript, but can be adapted to work on other data as well.
 
-After installing depnedencies and configuring paths in the config file (`config.json`), the analysis can be run with `snakemake -s run_analysis.snakemake.py` (the other snakemake files are included in this one). You might also want to use `-j` to give multiple processors to snakemake. 
+After installing dependencies and configuring paths in the config file (`config.json`), the analysis can be run with `snakemake -s run_analysis.snakemake.py` (the other snakemake files are included in this one). You might also want to use `-j` to give multiple processors to snakemake. 
 
 The following resulting files were used in the manusript (with some adjustment for readability):
 
@@ -44,7 +44,50 @@ The following resulting files were used in the manusript (with some adjustment f
 
 Interesting graphs about error rates and read assignment that were not used in the manuscript can be found in the `mapping` folder.
 
+## Adapting the pipeline for your data
+The full analysis in this pipeline is specific to our setup with a mock community and 
 
+The full analysis in this pipeline is specific to our setup with a mock community and isolate samples, but the actual metabarcoding part can be run on its own on other data as well. 
+
+### Input Data
+As for the analysis on our data the paths for the external tools have to set in the `config.json` file. In addition the `sample.json` needs to be edited to fit your data. In the `sampleName` section the file name of your de-multiplexed fastq file (wihtout the `.fastq` extension) and (human readable) sample name have to be given. In the `sampleType` section you should give the file name (as in the `sampleName` section) and `env` (for environmental) as the sampel type. 
+
+Fastq files can be used directly from PacBio CCS software. They have to be placed in the folder that is given as `inFolder` in `config.json`. The default is a folder called `raw` in the same place were you run the pipeline.
+
+### Primer Sequences
+Sequences of forward and backward primers can be given in the `config.json` file under `fwd_primer` and `rev_primer` respectively.
+
+### Parameters
+Parameters for the steps of the pipeline can be changed in the `config.json` file. thw following parameters are available:
+
+__minReadLen__  (default 3000): Minimum accpetable read length.
+
+__maxReadLen__ (default 6500): Maximum acceptable read length
+
+__minReadQual__ (default 0.996): Minimum acceptable mean read quality (computed from PHRED score)
+
+__qualityWindowSize__ (default 8): Window size for sliding window quality filter
+
+__windowMinQualtiy__ (default 0.9): Minimum acceptable mean quality for slifing window quality filter
+
+__primerMinOverlap__ (default 10): Minimum overlap for primer idfnetification (passed to cutadapt `-O`)
+
+__[its|ssu|lsu]MaxEvalue__ (default 10<sup>-6</sup>): Maximum acceptable e-value for ITS/SSU/LSU alignemnts
+
+__[its|ssu|lsu]itsTopPercent__  (default 5.0): ITS/SSU/LSU alignments with score more than X% lower than the best alignment for this query are ignored. 
+
+__[its|ssu|lsu]itsMinIdentity__ (default 80.0): Minimum acceptable identity value for ITS/SSU/LSU alignemnts
+
+__[its|ssu|lsu]itsMinCoverage__ (default 85.0): Minimum acceptable coverage value for ITS/SSU/LSU alignemnts
+
+__[its|ssu|lsu]itsLcaStringency__ (default 0.9): Minimum percentage of same classification of all accepted alignments at each taxonomic rank for a classification to be accepteed during LCA
+
+
+###Running the metabarcoding analysis
+`snakemake -s run_analysis.snakemake.py metabarcoding` will run only the metabarcoding part of the analysis. You might also want to use `-j` to give multiple processors to snakemake. This will crete two files. An OTU-table (`all_otu97_table.tsv`) with the following columns: OTU ID, total number of reads in this OTU, SSU classification, ITS classification, LSU classification and onw cloumn per sample with the number of reads in this OTU for this sample. And a graph of classification depth with the three markers of the most abundand OTUs (`all_clsComp_depth.svg`).
+
+The identity thrshold for clustering can be changed by running the pipeline with specific output file names. E.g. `snakemake -s run_analysis.snakemake.py all_otu98_table.tsv` to create an OTU table with a similarity threshold of 98 instead of 97.
+    
 ## Rules
 
 The following is a list of the main rules in the workflow. Many simple rules are not specifically documented here.

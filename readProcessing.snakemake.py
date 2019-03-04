@@ -110,8 +110,8 @@ rule windowQualFilter:
     output: good="windowQualFilter/{sample}_goodQual.fastq", stat="windowQualFilter/{sample}_stat.tsv"
     log: "logs/{sample}_winQualityFilter.log"
     run:
-        winSize = config["windowMinQuality"]
-        minQual = config["qualityWindowSize"]
+        winSize = config["qualityWindowSize"]
+        minQual = config["windowMinQuality"]
         removed = 0
         with open(output.good, "w") as out, open(output.stat, "w") as statOut:
             for read in SeqIO.parse(open(input.fastq), "fastq"):

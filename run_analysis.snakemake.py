@@ -196,7 +196,7 @@ rule classifyITS:
         topPerc = config["itsTopPercent"]
         minIdent = config["itsMinIdentity"]
         minCov = config["itsMinCoverage"]
-        stringecny = config["itsLcaStringency"]
+        stringency = config["itsLcaStringency"]
         
         taxDict = {}
         for line in open(input.tax):
@@ -274,7 +274,7 @@ rule classifySSU:
         topPerc = config["ssuTopPercent"]
         minIdent = config["ssuMinIdentity"]
         minCov = config["ssuMinCoverage"]
-        stringecny = config["ssuLcaStringency"]
+        stringency = config["ssuLcaStringency"]
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")
@@ -365,7 +365,7 @@ rule classifyLSU:
         topPerc = config["lsuTopPercent"]
         minIdent = config["lsuMinIdentity"]
         minCov = config["lsuMinCoverage"]
-        stringecny = config["lsuLcaStringency"]
+        stringency = config["lsuLcaStringency"]
         taxDict={}
         for line in open(input.tax):
             rId, tax = line.strip().split("\t")

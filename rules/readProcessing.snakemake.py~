@@ -1,24 +1,29 @@
 
-rule getData:
-    """Download read data from the SRA"""
-    output: "%(inFolder)s/{sample}.fastq" % config
-    run:
-        sId = sampleInfo["sraID"][wildcards.sample]
-        shell("%(fastq-dump)s" % config + " %s -Z > {output}" % sId)
+#rule getData:
+#    """Download read data from the SRA"""
+#    output: "%(inFolder)s/{sample}.fastq" % config
+#    run:
+#        sId = sampleInfo["sraID"][wildcards.sample]
+#        shell("%(fastq-dump)s" % config + " %s -Z > {output}" % sId)
 
 rule fastqc:
     """Run fastqc an all samples"""
     input: "%(inFolder)s/{sample}.fastq" % config
     output: "QC/{sample}_fastqc.html"
     threads: 6
-    shell: "%(fastqc)s -o QC -t {threads} {input}" % config
+    conda:
+        "envs/fastqc.yaml"
+    shell: 
+        "fastqc -o QC -t {threads} {input}" % config
 
 rule multiqc:
     """Combine QC reports into one with multiqc"""
     input: expand("QC/{sample}_fastqc.html", sample=allSamples)
     output: "QC/multiqc_report.html", "QC/multiqc_data/multiqc_fastqc.txt"
+    conda:
+        "envs/multiqc.yaml"
     shell:
-        "%(multiqc)s -f --interactive -o QC QC/*_fastqc.zip" % config
+        "multiqc -f --interactive -o QC QC/*_fastqc.zip" % config
 
 rule lengthFilter:
     """Filter reads by minimum and maximum length"""
@@ -92,16 +97,10 @@ rule plotQualVsLength:
     """Plot quality vs length"""
     input: "qualFilter/lenVsQual.tsv"
     output: "lenVsQual.png"
-    run:
-        R("""
-        library(ggplot2)
-        d=read.table("{input}", header=F)
-        colnames(d) = c("sample", "read", "length", "qual")
-        m=lm(qual~length+sample, d)
-        
-        ggplot(d) + geom_point(aes(length, qual, color=sample), alpha=0.5) + geom_smooth(aes(length, qual), method = "lm", linetype = 2)
-        ggsave("{output}", width=16, height=10)
-        """)
+    conda:
+        "envs/ggplot.yaml"
+    script:
+        "scripts/qualVsLength.R"
         
 
 rule windowQualFilter:
@@ -140,27 +139,18 @@ rule catWindowQual:
     shell:
         "cat {input} > {output}"
 
+
 rule filterPrimer:
     """Filter sequences by occurence of primer sequences and cut primer sequences"""
     input: "windowQualFilter/{sample}_goodQual.fastq"
     output: fastq="primers/{sample}_primer.fastq"
     log: "logs/{sample}_primer.log"
-    threads: 3
-    run:
-        shell("%(cutadapt)s -g forward=%(fwd_primer)s -g reverse=%(rev_primer)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_{{name}}.fastq {input} &> {log}" % config)
-        config["fwd_primer_rc"] = str(Seq(config["fwd_primer"], IUPACAmbiguousDNA()).reverse_complement())
-        config["rev_primer_rc"] = str(Seq(config["rev_primer"], IUPACAmbiguousDNA()).reverse_complement())
-        
-        shell("%(cutadapt)s -a forward=%(fwd_primer_rc)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_reverse_forward.fastq primers/{wildcards.sample}_reverse.fastq &>> {log}" % config)
-        shell("%(cutadapt)s -a reverse=%(rev_primer_rc)s -O %(primerMinOverlap)i --trimmed-only -o primers/{wildcards.sample}_forward_reverse.fastq primers/{wildcards.sample}_forward.fastq &>> {log}" % config)
-        with open(output[0], "w") as out:
-            for rec in SeqIO.parse(open("primers/%s_reverse_forward.fastq" % wildcards.sample), 
-                                   "fastq"):
-                newRec = rec.reverse_complement()
-                newRec.id = "%s/rc" % rec.id
-                newRec.description = rec.description.split(" ", 1)[1]
-                out.write(newRec.format("fastq"))
-        shell("cat primers/{wildcards.sample}_forward_reverse.fastq >> {output}")
+    threads: 6
+    conda:
+        "envs/cutadapt.yaml"
+    shell:
+        "cutadapt -a ^%(forward_primer)s...%(reverse_primer)s$ --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
+
 
 rule fastq2fasta:
     """Convert reads from fastq to fasta"""
@@ -284,82 +274,12 @@ rule catReadNumber:
                     lib, bc = sample.split("-")
                     out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (stage, sample, sampleName[sample], number, lib, bc))
 
-rule plotReadNumber:
-    """Plot read number after each filtering step"""
-    input: "readNumbers/readNumbers.tsv"
-    output: graph="readNumbers.svg", tab="readNumbersTab.tsv"
-    run:
-        R("""
-        library(ggplot2)
-        library(reshape2)
-
-        collectData <- function (set, setname, a_total, a_rel) {{
-            set$prop=NA
-
-            for (tSample in unique(set$sample)) {{
-                for (stage in c("lenFilter", "qualFilter", "winQualFilter", "primerFilter")) {{
-                    set[set$sample==tSample & set$stage==stage,]$prop = set[set$sample==tSample & set$stage==stage,]$number/set[set$sample==tSample & set$stage=="raw",]$number
-                }}
-                set[set$sample==tSample & set$stage=="raw",]$prop = 1.0
-            }}
-
-            new = aggregate(prop~stage, set, mean)
-            colnames(new) = c("stage", "mean")
-            new$sd=aggregate(prop~stage, set, sd)$prop
-            new$group=setname
-            a_rel=rbind(a_rel, new)
-
-
-            new = aggregate(number~stage, set, mean)
-            colnames(new) = c("stage", "mean")
-            new$sd=aggregate(number~stage, set, sd)$number
-            new$group=setname
-            a_total=rbind(a_total, new)
-            return(list(a_total, a_rel))
-        }}
-
-        d=read.table("{input}")
-        colnames(d) = c("stage", "sample", "sampleName", "number", "lib", "bc")
-
-        d$stage=factor(d$stage, levels=c("raw", "lenFilter", "qualFilter", "winQualFilter", "primerFilter"))
-
-        d$group=NA
-        d[d$sample %%in%% c("%(stechlin)s"),]$group="stechlin"
-        d[d$sample %%in%% c("%(mock)s"),]$group="mock_community"
-        d[d$sample %%in%% c("%(isolate)s"),]$group="isolate"
-
-        at=numeric(0)
-        ar=numeric(0)
-
-        env=subset(d, group=="stechlin")
-        rv=collectData(env, "stechlin", at, ar)
-        at=rv[[1]]
-        ar=rv[[2]]
-
-
-        moc=subset(d, group=="mock_community")
-        rv=collectData(moc, "mock community", at, ar)
-        at=rv[[1]]
-        ar=rv[[2]]
-
-        iso=subset(d, group=="isolate")
-        rv=collectData(iso, "isolate samples", at, ar)
-        at=rv[[1]]
-        ar=rv[[2]]
-
-
-        #ggplot(subset(ar, stage!="raw"), aes(x=stage, y=mean, fill=group)) + geom_bar(stat="identity", position="dodge") + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(.9)) + labs(y="proportion of reads remaining")
-        ggplot(subset(ar, stage!="raw"), aes(x=stage, y=mean, fill=group)) + geom_bar(stat="identity") + geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2) + labs(y="proportion of reads remaining") + facet_grid(group~.)
-        ggsave("{output.graph}", width=16, height=10)
-
-        outtab=dcast(d[!is.na(d$group),], group+sampleName~stage, fun.aggregate=sum, value.var="number")
-        outtab=outtab[order(outtab$group, outtab$sampleName),]
-        write.table(outtab, "{output.tab}", quote=F, sep="\t", col.names=T, row.names=F)
-        """ % {"stechlin": '","'.join([sId for sId, sName in sampleInfo["sampleName"].items() if sName.startswith("STN")]),
-               "mock": '","'.join([sId for sId, sType in sampleInfo["sampleType"].items() if sType == "mock"]),
-               "isolate": '","'.join([sId for sId, sType in sampleInfo["sampleType"].items() if sType == "isolate"])
-              }
-        )
+#rule plotReadNumber:
+#    """Plot read number after each filtering step"""
+#    input: "readNumbers/readNumbers.tsv"
+#    output: graph="readNumbers.svg", tab="readNumbersTab.tsv"
+#    script:
+#       "scripts/readProcessing.R"
         
 rule prepPrecluster:
     """Prepare reads for pre-clustering i.e. sort them by mean quality"""
@@ -388,8 +308,10 @@ rule preCluster:
     output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
     log: "logs/{sample}_pre-cluster.log"
     threads: 6
+    conda:
+        "envs/vsearch.yaml"
     shell:
-        "%(vsearch)s --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
+        "vsearch --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
 
 rule preClusterInfo:
     """Create tables for which read is in which pre cluster and number of reads per pre-cluster"""
@@ -416,8 +338,10 @@ rule itsx:
     output: "itsx/{sample}.SSU.fasta", "itsx/{sample}.ITS1.fasta", "itsx/{sample}.5_8S.fasta", "itsx/{sample}.ITS2.fasta", "itsx/{sample}.LSU.fasta", "itsx/{sample}.summary.txt", "itsx/{sample}.positions.txt", "itsx/{sample}.full.fasta"
     threads: 6
     log: "logs/{sample}_itsx.log"
+    conda:
+        "envs/
     shell:
-        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 500 -E 1e-4 2> {log}" % config
+        "%(itsx)s -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 100 -E 1e-4 2> {log}" % config
 
 def sampleMappingInput(wildcards):
     """determine input data for sampleMapping rule according to sampleSet wildcard"""

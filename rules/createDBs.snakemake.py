@@ -93,36 +93,10 @@ rule filterSilva:
     output: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
     log: "%(dbFolder)s/silvaFilter_{marker}.log" % config
     params: minSeqQ=85.0, minPinQ=50.0
-    run:
-        seqQ = {}
-        pinQ = {}
-        with open(input.qual) as qual:
-            header = next(qual)
-            for line in qual:
-                arr=line.strip().split("\t")
-                seqQ[arr[0]] = float(arr[5])
-                try:
-                    pinQ[arr[0]] = float(arr[12])
-                except ValueError:
-                    if arr[12] == "NULL":
-                        pinQ[arr[0]] = None
-                    else:
-                        raise
-        with open(output[0], "w") as out:
-            total=0
-            badS=0
-            badP=0
-            for rec in SeqIO.parse(open(input.fasta), "fasta"):
-                total += 1
-                acc = rec.id.split(".")[0]
-                if seqQ[acc] < params.minSeqQ:
-                    badS += 1
-                    continue
-                if pinQ[acc] is None or pinQ[acc] < params.minPinQ:
-                    badP += 1
-                    continue
-                out.write(rec.format("fasta"))
-            open(log[0], "w").write("%i sequences read. %i sequences removed because of sequence quality < %f.\n%i sequences removed because of pintail quality < %f.\n" % (total, badS, params.minSeqQ, badP, params.minPinQ))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/db_filterSilva.py"
 
 rule getSilvaTaxMap:
     """Download silva taxonomy data"""

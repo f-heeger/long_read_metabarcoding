@@ -1,4 +1,4 @@
 channels:
  - bioconda
 dependencies:
- - lambda=1.0.3
+ - lambda=2.0.0

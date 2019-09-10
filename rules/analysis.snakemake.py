@@ -88,7 +88,7 @@ rule alignToUnite:
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -p blastn -t {threads} &> {log}" % config
+        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -t {threads} &> {log}" % config
 
 rule classifyITS:
     """Classify OTU based on ITS matches with LCA approach"""
@@ -107,7 +107,7 @@ rule alignToSilva:
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 20000 -p blastn -t {threads} -b -2 -x 30 -as F &> {log}" % config
+        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 20000 -t {threads} -b -2 -x 30 -as F &> {log}" % config
 
 rule classifySSU:
     """Classify OTU based on SSU matches with LCA approach"""
@@ -128,7 +128,7 @@ rule alignToRdp:
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -p blastn -t {threads} -b -2 -x 40 -as F &> {log}" % config
+        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -t {threads} -b -2 -x 40 -as F &> {log}" % config
 
 rule classifyLSU:
     """Classify OTU based on LSU matches with LCA approach"""

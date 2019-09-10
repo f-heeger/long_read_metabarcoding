@@ -20,12 +20,12 @@ rule createUniteTax:
 rule creatUniteIndex:
     """Create lambda index file for UNITE data"""
     input: "%(dbFolder)s/UNITE_%(uniteVersion)s.fasta" % config
-    output: "%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config
+    output: directory("%(dbFolder)s/UNITE_%(uniteVersion)s.index.lambda" % config)
     threads: 6
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+        "lambda2 mkindexn -d {input} -i {output} -t {threads}" % config
         
 rule getSilva_main:
     """download SILVA fasta file"""
@@ -159,7 +159,7 @@ rule renameSilvaTax:
 
 rule createSlivaTax:
     """Create taxonomy file for silva, only using "canonical" levels"""
-    input: fasta="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, tax="%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
+    input: fasta="%(dbFolder)                                           s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config, tax="%(dbFolder)s/SILVA_tax_{marker}_%(silvaVersion)s.txt" % config
     output: tax="%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}_tax.tsv" % config
     conda:
         "../envs/biopython.yaml"
@@ -169,12 +169,12 @@ rule createSlivaTax:
 rule creatSilvaIndex:
     """Create lambda index for silva file"""
     input: "%(dbFolder)s/SILVA_%(silvaVersion)s_{marker}Ref_tax_silva_trunc.good.fasta" % config
-    output: "%(dbFolder)s/silva_{marker}_index.lambda" % config
+    output: directory("%(dbFolder)s/silva_{marker}_index.lambda" % config)
     threads: 6
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda_indexer -d {input} -i {output} -p blastn -t {threads}" % config
+        "lambda2 mkindexn -d {input} -i {output} -t {threads}" % config
 
 rule getRdpLsu:
     """Download rdp LSU file (fasta file and readme with version number)"""
@@ -211,12 +211,12 @@ rule createRdpLsuTax:
 rule createRdpLsuIndex:
     """create lambda index for RDP database"""
     input: "%(dbFolder)s/rdp_LSU_%(rdpVersion)s.fasta" % config
-    output: "%(dbFolder)s/rdp_LSU_index.lambda" % config
+    output: directory("%(dbFolder)s/rdp_LSU_index.lambda" % config)
     threads: 6
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda_indexer -d {input} -i {output} -p blastn -t {threads}"
+        "lambda2 mkindexn -d {input} -i {output} -t {threads}"
 
 #rule ssuOverview:
 #    """Generate taxonomy level statistics for silva"""

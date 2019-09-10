@@ -19,7 +19,7 @@ with open(snakemake.output[0], "w") as out:
     total=0
     badS=0
     badP=0
-    for rec in SeqIO.parse(snakemake.open(input.fasta), "fasta"):
+    for rec in SeqIO.parse(open(snakemake.input.fasta), "fasta"):
         total += 1
         acc = rec.id.split(".")[0]
         if seqQ[acc] < snakemake.params.minSeqQ:

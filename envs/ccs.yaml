@@ -1,4 +1,4 @@
 channels:
  - bioconda
 dependencies:
- - vsearch=2.13.7
+ - pbccs=3.4.0

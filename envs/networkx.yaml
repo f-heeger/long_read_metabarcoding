@@ -1,0 +1,4 @@
+channels:
+ - conda-forge
+dependencies:
+ - networkx=2.3

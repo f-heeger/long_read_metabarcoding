@@ -1,4 +1,4 @@
 channels:
  - bioconda
 dependencies:
- - vsearch=2.13.7
+ - cutadapt=2.3

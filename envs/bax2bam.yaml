@@ -1,4 +1,4 @@
 channels:
  - bioconda
 dependencies:
- - vsearch=2.13.7
+ - bax2bam=0.0.9

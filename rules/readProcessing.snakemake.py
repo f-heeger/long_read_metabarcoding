@@ -6,131 +6,114 @@
 #        sId = sampleInfo["sraID"][wildcards.sample]
 #        shell("%(fastq-dump)s" % config + " %s -Z > {output}" % sId)
 
+rule createBam:
+    input: "raw/{part}.bax.h5"
+    output: "raw/{part}.subreads.bam"
+    conda:
+        "../envs/bax2bam.yaml"
+    shell:
+        "bax2bam --subread -o raw/{wildcards.part} {input}"
+
+rule ccs:
+    input: "raw/{part}.subreads.bam"
+    output: "raw/{part}.ccs.bam"
+    log: "logs/ccs/{part}.ccs.log", "logs/ccs/{part}_css_report.txt"
+    threads: 6
+    conda:
+        "../envs/ccs.yaml"
+    shell:
+        "ccs --minPasses %(minPass)s --minPredictedAccuracy %(minAcc)s -j {threads} --logFile {log[0]} --reportFile {log[1]} {input} {output}" % config
+
+rule bam2fastq:
+    input: "raw/{part}.ccs.bam"
+    output: "raw/{part}.ccs.fastq.gz"
+    conda:
+        "../envs/bam2fastx.yaml"
+    shell:
+        "bam2fastq -o raw/{wildcards.part}.ccs {input}"
+
+def rawFileInput(wildcards):
+    return ["raw/m190902_060748_42244_c101509812550000001823327603152127_s1_p0.1.ccs.fastq.gz"]
+    #return config["samples"][wildcards.sample]["path"]
+
 rule fastqc:
     """Run fastqc an all samples"""
-    input: "%(inFolder)s/{sample}.fastq" % config
+    input: rawFileInput
     output: "QC/{sample}_fastqc.html"
     threads: 6
     conda:
-        "envs/fastqc.yaml"
+        "../envs/fastqc.yaml"
     shell: 
-        "fastqc -o QC -t {threads} {input}" % config
+        "cp {input} QC/{wildcards.sample}.fastq; fastqc -o QC -t {threads} QC/{wildcards.sample}.fastq; rm QC/{wildcards.sample}.fastq" % config
 
 rule multiqc:
     """Combine QC reports into one with multiqc"""
-    input: expand("QC/{sample}_fastqc.html", sample=allSamples)
+    input: expand("QC/{sample}_fastqc.html", sample=samples)
     output: "QC/multiqc_report.html", "QC/multiqc_data/multiqc_fastqc.txt"
     conda:
-        "envs/multiqc.yaml"
+        "../envs/multiqc.yaml"
     shell:
         "multiqc -f --interactive -o QC QC/*_fastqc.zip" % config
 
 rule lengthFilter:
     """Filter reads by minimum and maximum length"""
-    input: fastq="%(inFolder)s/{sample}.fastq" % config
-    output: right="lenFilter/{sample}_rightLen.fastq", long="lenFilter/{sample}_tooLong.fastq", short="lenFilter/{sample}_tooShort.fastq"
+    input: rawFileInput
+    output: right="lenFilter/{sample}_rightLen.fastq.gz", long="lenFilter/{sample}_tooLong.fastq.gz", short="lenFilter/{sample}_tooShort.fastq.gz"
     log: "logs/{sample}_lenFilter.log"
-    run:
-        maxLen = config["maxReadLen"]
-        minLen = config["minReadLen"]
-        nrLong = 0
-        nrShort = 0
-        with open(output.right, "w") as out, open(output.long, "w") as tooLong, open(output.short, "w") as tooShort:
-            for read in SeqIO.parse(open(input[0]), "fastq"):
-                if len(read) <= minLen:
-                    tooShort.write(read.format("fastq"))
-                    nrShort += 1
-                elif len(read) <= maxLen:
-                    out.write(read.format("fastq"))
-                else:
-                    tooLong.write(read.format("fastq"))
-                    nrLong += 1
-        with open(log[0], "w") as logFile:
-            logFile.write("%i reads were removed because they were longer than %i\n" % (nrLong, maxLen))
-            logFile.write("%i reads were removed because they were shorter than %i\n" % (nrLong, maxLen))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_lengthFilter.py"
 
 rule qualityFilter:
     """Filter reads by minimum mean quality"""
-    input: fastq="lenFilter/{sample}_rightLen.fastq"
-    output: good="qualFilter/{sample}_goodQual.fastq", bad="qualFilter/{sample}_badQual.fastq", info="qualFilter/{sample}_qualInfo.tsv"
+    input: fastq="lenFilter/{sample}_rightLen.fastq.gz"
+    output: good="qualFilter/{sample}_goodQual.fastq.gz", bad="qualFilter/{sample}_badQual.fastq.gz", info="qualFilter/{sample}_qualInfo.tsv"
     log: "logs/{sample}_qualityFilter.log"
-    run:
-        minQual = config["minReadQual"]
-        removed = 0
-        
-        with open(output.good, "w") as out, open(output.bad, "w") as trash, open(output.info, "w") as info:
-            for read in SeqIO.parse(open(input.fastq), "fastq"):
-                try:
-                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"]]) / len(read)
-                except Exception:
-                    print(read.id)
-                    raise
-                info.write("%s\t%f\n" % (read.id, 1-tError))
-                if (1-tError) < minQual:
-                    removed += 1
-                    trash.write(read.format("fastq"))
-                else:
-                    out.write(read.format("fastq"))
-        open(log[0], "w").write("%s: %i reads removed because quality < %f\n" % (wildcards.sample, removed, minQual))
-
-rule qualityVsLength:
-    """Generate data for plotting length vs quality"""
-    input: fasta="lenFilter/{sample}_rightLen.fastq", qual="qualFilter/{sample}_qualInfo.tsv"
-    output: tsv="qualFilter/{sample}_LenVsQual.tsv"
-    run:
-        qual = {}
-        for line in open(input.qual):
-            rId, q = line.strip().split("\t")
-            qual[rId] = float(q)
-        with open(output.tsv, "w") as out:
-            for rec in SeqIO.parse(open(input.fasta), "fastq"):
-                out.write("%s\t%s\t%i\t%f\n" % (wildcards.sample, rec.id, len(rec), qual[rec.id]))
-
-rule concatQualVsLength:
-    """Concatenate quality vs length data for all samples"""
-    input: expand("qualFilter/{sample}_LenVsQual.tsv", sample=samples)
-    output: "qualFilter/lenVsQual.tsv"
-    shell:
-        "cat {input} > {output}"
-
-rule plotQualVsLength:
-    """Plot quality vs length"""
-    input: "qualFilter/lenVsQual.tsv"
-    output: "lenVsQual.png"
     conda:
-        "envs/ggplot.yaml"
+        "../envs/biopython.yaml"
     script:
-        "scripts/qualVsLength.R"
+        "../scripts/processing_qualityFilter.py"
+
+#rule qualityVsLength:
+#    """Generate data for plotting length vs quality"""
+#    input: fasta="lenFilter/{sample}_rightLen.fastq", qual="qualFilter/{sample}_qualInfo.tsv"
+#    output: tsv="qualFilter/{sample}_LenVsQual.tsv"
+#    run:
+#        qual = {}
+#        for line in open(input.qual):
+#            rId, q = line.strip().split("\t")
+#            qual[rId] = float(q)
+#        with open(output.tsv, "w") as out:
+#            for rec in SeqIO.parse(open(input.fasta), "fastq"):
+#                out.write("%s\t%s\t%i\t%f\n" % (wildcards.sample, rec.id, len(rec), qual[rec.id]))
+
+#rule concatQualVsLength:
+#    """Concatenate quality vs length data for all samples"""
+#    input: expand("qualFilter/{sample}_LenVsQual.tsv", sample=samples)
+#    output: "qualFilter/lenVsQual.tsv"
+#    shell:
+#        "cat {input} > {output}"
+
+#rule plotQualVsLength:
+#    """Plot quality vs length"""
+#    input: "qualFilter/lenVsQual.tsv"
+#    output: "lenVsQual.png"
+#    conda:
+#        "envs/ggplot.yaml"
+#    script:
+#        "scripts/qualVsLength.R"
         
 
 rule windowQualFilter:
     """Filter by sliding window mean quality"""
-    input: fastq="qualFilter/{sample}_goodQual.fastq"
-    output: good="windowQualFilter/{sample}_goodQual.fastq", stat="windowQualFilter/{sample}_stat.tsv"
+    input: fastq="qualFilter/{sample}_goodQual.fastq.gz"
+    output: good="windowQualFilter/{sample}_goodQual.fasta", stat="windowQualFilter/{sample}_stat.tsv"
     log: "logs/{sample}_winQualityFilter.log"
-    run:
-        winSize = config["qualityWindowSize"]
-        minQual = config["windowMinQuality"]
-        removed = 0
-        with open(output.good, "w") as out, open(output.stat, "w") as statOut:
-            for read in SeqIO.parse(open(input.fastq), "fastq"):
-                anyRemoved = False
-                for i in range(len(read)-winSize):
-                    tError = sum([10.0**(float(-q)/10.0) for q in read.letter_annotations["phred_quality"][i:i+winSize] ]) / winSize
-                    tQual = 1 - tError
-                    tRemoved=False
-                    if (tQual) < minQual:
-                        tRemoved = True
-                        anyRemoved = True
-                    kmer=str(read.seq[i:i+winSize])
-                    hp = homopoly(kmer)
-                    statOut.write("%s\t%s\t%i\t%i\t%f\t%s\t%s\t%i\t%i\t%i\t%i\t%i\n" % (wildcards.sample, read.id, i, len(read), tQual, tRemoved, kmer, kmer.count("A"), kmer.count("C"), kmer.count("G"), kmer.count("T"), hp))
-                if not anyRemoved:
-                    out.write(read.format("fastq"))
-                else:
-                    removed += 1
-            with open(log[0], "w") as logFile:
-                logFile.write("%s: %i reads removed because in a window of size %i quality droped below %f\n" % (wildcards.sample, removed, winSize, minQual))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_windowQualityFilter.py"
 
 rule catWindowQual:
     """concatenate window quality data for all environmental samples"""
@@ -140,127 +123,98 @@ rule catWindowQual:
         "cat {input} > {output}"
 
 
-rule filterPrimer:
-    """Filter sequences by occurence of primer sequences and cut primer sequences"""
-    input: "windowQualFilter/{sample}_goodQual.fastq"
-    output: fastq="primers/{sample}_primer.fastq"
-    log: "logs/{sample}_primer.log"
+rule filterPrimer53:
+    """Filter sequences by occurence of primer sequences and cut primer sequences
+    with forward primer in the front and reverse primer in the end"""
+    input: "windowQualFilter/{sample}_goodQual.fasta"
+    output: fastq="primers/{sample}_53.fasta"
+    log: "logs/{sample}_53_primer.log"
     threads: 6
     conda:
-        "envs/cutadapt.yaml"
+        "../envs/cutadapt.yaml"
     shell:
-        "cutadapt -a ^%(forward_primer)s...%(reverse_primer)s$ --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
+        "cutadapt -g %(fwd_primer)s...%(rv_rev_primer)s --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
 
+rule filterPrimer35:
+    """Filter sequences by occurence of primer sequences and cut primer sequences
+    with reverse complement reverse-primer in the front and 
+    reverse complement forward-primer in the end"""
+    input: "windowQualFilter/{sample}_goodQual.fasta"
+    output: fastq="primers/{sample}_35.fasta"
+    log: "logs/{sample}_35_primer.log"
+    threads: 6
+    conda:
+        "../envs/cutadapt.yaml"
+    shell:
+        "cutadapt -g %(rev_primer)s...%(rv_fwd_primer)s --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
 
-rule fastq2fasta:
-    """Convert reads from fastq to fasta"""
-    input: "primers/{sample}_primer.fastq"
-    output: "primers/{sample}_primer.fasta"
-    run:
-        with open(output[0], "w") as out:
-            for read in SeqIO.parse(open(input[0]), "fastq"):
-                out.write(read.format("fasta"))
-        shell("sleep 1m; touch {output}")
+rule combinFilterPrimer:
+    """combine the forward and reverse Primer filtered sequences"""
+    input: fwd="primers/{sample}_53.fasta", rev="primers/{sample}_35.fasta"
+    output: fastq="primers/{sample}_primer.fasta"
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_combineFilterPrimer.py"
+    
+
+#rule fastq2fasta:
+#    """Convert reads from fastq to fasta"""
+#    input: "primers/{sample}_primer.fastq"
+#    output: "primers/{sample}_primer.fasta"
+#    conda:
+#        "../envs/biopython.yaml"
+#    script:
+#        "../scripts/processing_windowQualityFilter.py"
+
+def readNumbers_rawInput(wildcards):
+    return [s["path"] for s in config["samples"].values()]
 
 rule readNumbers_raw:
     """Count raw reads"""
-    input: raw=expand("%(inFolder)s/{sample}.fastq" % config, sample=allSamples)
+    input: readNumbers_rawInput
     output: "readNumbers/rawReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #raw
-            for rawFileName in input.raw:
-                i=0
-                with open(rawFileName) as rawFile:
-                    iter = SeqIO.parse(rawFile, "fastq")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = rawFileName.rsplit("/", 1)[-1].split(".")[0]
-                out.write("raw\t%s\t%i\n" % (sample, i))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_readNumbersRaw.py"
+
 
 rule readNumbers_maxLen:
     """Count reads after length filter"""
-    input: length=expand("lenFilter/{sample}_rightLen.fastq", sample=allSamples)
+    input: length=expand("lenFilter/{sample}_rightLen.fastq.gz", sample=samples)
     output: "readNumbers/lenReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #max lenght filter
-            for lenFileName in input.length:
-                i=0
-                with open(lenFileName) as lenFile:
-                    iter = SeqIO.parse(lenFile, "fastq")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = lenFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("lenFilter\t%s\t%i\n" % (sample, i))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_readNumbersMaxLen.py"
 
 rule readNumbers_qual:
     """Count reads after average quality filter"""
-    input: qual=expand("qualFilter/{sample}_goodQual.fastq", sample=allSamples)
+    input: qual=expand("qualFilter/{sample}_goodQual.fastq.gz", sample=samples)
     output: "readNumbers/qualReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #quality filter
-            for qualFileName in input.qual:
-                i=0
-                with open(qualFileName) as qualFile:
-                    iter = SeqIO.parse(qualFile, "fastq")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = qualFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("qualFilter\t%s\t%i\n" % (sample, i))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_readNumbersQual.py"
 
 rule readNumbers_winQual:
     """Countr reads after sliding window quality filter"""
-    input: qual=expand("windowQualFilter/{sample}_goodQual.fastq", sample=allSamples)
+    input: qual=expand("windowQualFilter/{sample}_goodQual.fasta", sample=samples)
     output: "readNumbers/winQualReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #quality filter
-            for qualFileName in input.qual:
-                i=0
-                with open(qualFileName) as qualFile:
-                    iter = SeqIO.parse(qualFile, "fastq")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = qualFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("winQualFilter\t%s\t%i\n" % (sample, i))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_readNumbersWinQual.py"
 
 rule readNumbers_primer:
     """Count reads after primer filtering"""
-    input: primer=expand("primers/{sample}_primer.fastq", sample=allSamples)
+    input: primer=expand("primers/{sample}_primer.fasta", sample=samples)
     output: "readNumbers/primerReadNumbers.tsv"
-    run:
-        with open(output[0], "w") as out:
-            #primer filter
-            for primerFileName in input.primer:
-                i=0
-                with open(primerFileName) as primerFile:
-                    iter = SeqIO.parse(primerFile, "fastq")
-                    while True:
-                        try:
-                            next(iter)
-                        except StopIteration:
-                            break
-                        i+=1
-                sample = primerFileName.rsplit("/", 1)[-1].rsplit("_", 1)[0]
-                out.write("primerFilter\t%s\t%i\n" % (sample, i))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_readNumbersPrimer.py"
 
 rule catReadNumber:
     """Concatenate all read numbers for plotting"""
@@ -271,8 +225,7 @@ rule catReadNumber:
             for inFile in input:
                 for line in open(inFile):
                     stage, sample, number = line.strip().split("\t")
-                    lib, bc = sample.split("-")
-                    out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (stage, sample, sampleName[sample], number, lib, bc))
+                    out.write("%s\t%s\t%s\t%s\n" % (stage, sample, samples[sample]["name"], number))
 
 #rule plotReadNumber:
 #    """Plot read number after each filtering step"""
@@ -285,33 +238,21 @@ rule prepPrecluster:
     """Prepare reads for pre-clustering i.e. sort them by mean quality"""
     input: fasta="primers/{sample}_primer.fasta", qual="qualFilter/{sample}_qualInfo.tsv"
     output: "preclusters/{sample}_cluInput.fasta"
-    run:
-        qual = {}
-        for line in open(input.qual):
-            rId, tQual = line.strip().split("\t")
-            qual[rId] = tQual
-        readList = []
-        for read in SeqIO.parse(open(input.fasta), "fasta"):
-            if read.id.endswith("rc"):
-                readId = read.id.rsplit("/", 1)[0]
-            else:
-                readId = read.id
-            readList.append((read, qual[readId]))
-        with open(output[0], "w") as out:
-            for read, qual in sorted(readList, key=lambda x: x[1], reverse=True):
-                read.description=str(qual)
-                out.write(read.format("fasta"))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_prepPreCluster.py"
 
 rule preCluster:
     """Pre-cluster at 99% similarity with vsearch, create consensus sequence"""
     input: "preclusters/{sample}_cluInput.fasta"
-    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
+    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta", msa="consensus/{sample}_msa.fasta"
     log: "logs/{sample}_pre-cluster.log"
     threads: 6
     conda:
-        "envs/vsearch.yaml"
+        "../envs/vsearch.yaml"
     shell:
-        "vsearch --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} &> /dev/null" % config
+        "vsearch --usersort --cluster_smallmem {input} --relabel {wildcards.sample}_precluster --sizeout --iddef 0 --id 0.99 --minsl 0.9 --consout {output.cons} --uc {output.uc} --threads {threads} --log {log} > /dev/null" % config
 
 rule preClusterInfo:
     """Create tables for which read is in which pre cluster and number of reads per pre-cluster"""
@@ -339,7 +280,7 @@ rule itsx:
     threads: 6
     log: "logs/{sample}_itsx.log"
     conda:
-        "envs/itsx.ymal"
+        "../envs/itsx.yaml"
     shell:
         "ITSx -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 100 -E 1e-4 2> {log}" % config
 
@@ -354,25 +295,8 @@ rule getSampleMapping:
     """Create a dictonary (in a pickle file) of which pre-cluster comes from which sample"""
     input: sampleMappingInput
     output: sample="{sampleSet}_preClu2sample.pic"
-    run:
-        preClu2sample = {}
-        for inputFile in input:
-            sample = inputFile.rsplit("/", 1)[-1].split(".", 1)[0]
-            for rec in SeqIO.parse(open(inputFile), "fasta"):
-                preClu2sample[rec.id] = sample
-        pickle.dump(preClu2sample, open(output.sample, "wb"))
+    conda:
+        "../envs/biopython.yaml"
+    script:
+        "../scripts/processing_getSampleMapping.py"
 
-######### helper functions ##########
-def homopoly(kmer):
-    """Check if kmer is a homopolymer"""
-    last=None
-    rv=1
-    h=1
-    for j in range(len(kmer)):
-        if kmer[j] == last:
-            h +=1
-        else:
-            rv=max(rv, h)
-            h=1
-            last = kmer[j]
-    return(max(rv, h))

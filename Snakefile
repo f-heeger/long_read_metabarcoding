@@ -1,12 +1,3 @@
-import pickle
-import json
-import math
-
-from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
-
 from snakemake.utils import min_version, R
 
 
@@ -15,31 +6,29 @@ shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution 
 
 configfile: "config.json"
 
-sampleInfo = json.load(open("samples.json"))
+comp = {"A": "T", "T": "A", "C": "G", "G": "C",
+        "W": "W", "M": "K", "K": "M", "R": "Y",
+        "Y": "R", "S": "S", "H": "D", "D": "H",
+        "V": "B", "B": "V", "N": "N"}
 
-samples = [sId for sId, sType in sampleInfo["sampleType"].items() if sType == "env"]
-isolates = {}
-for sId, sType in sampleInfo["sampleType"].items():
-    if sType == "isolate":
-        try:
-            isolates[sampleInfo["sampleName"][sId]].append(sId)
-        except KeyError:
-            isolates[sampleInfo["sampleName"][sId]] = [sId]
+config["rv_fwd_primer"] = "".join(comp[base] for base in config["fwd_primer"][::-1])
+config["rv_rev_primer"] = "".join(comp[base] for base in config["rev_primer"][::-1])
 
-allSamples = list(sampleInfo["sampleName"].keys())
+samples = {}
+for line in open("samples.tsv"):
+    sId, sPath, sName = line.strip("\n").split("\t")
+    samples[sId] = {"path": sPath, "name": sName}
 
-sampleName = sampleInfo["sampleName"]
-
-mockSamples = [sId for sId, sType in sampleInfo["sampleType"].items() if sType == "mock"]
+config["samples"] = samples
 
 ####################################################################
 # includes
 
 include: "rules/createDBs.snakemake.py"
 include: "rules/readProcessing.snakemake.py"
-include: "rules/mapping.snakemake.py"
+#include: "rules/mapping.snakemake.py"
 include: "rules/chimera_analysis.snakemake.py"
-include: "rules/mockAnalysis.snakemake.py"
+#include: "rules/mockAnalysis.snakemake.py"
 include: "rules/analysis.snakemake.py"
 
 rule all:

@@ -107,7 +107,7 @@ rule alignToSilva:
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 20000 -t {threads} -b -2 -x 30 -as F &> {log}" % config
+        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -n 10000 -t {threads} -b -2 -x 30 --adaptive-seeding F &> {log}" % config
 
 rule classifySSU:
     """Classify OTU based on SSU matches with LCA approach"""
@@ -128,7 +128,7 @@ rule alignToRdp:
     conda:
         "../envs/lambda.yaml"
     shell:
-        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -nm 5000 -t {threads} -b -2 -x 40 -as F &> {log}" % config
+        "lambda2 searchn -q {input.clu} -i {input.db} -o {output} --output-columns \"std qlen slen\" -n 5000 -t {threads} -b -2 -x 40 --adaptive-seeding F &> {log}" % config
 
 rule classifyLSU:
     """Classify OTU based on LSU matches with LCA approach"""

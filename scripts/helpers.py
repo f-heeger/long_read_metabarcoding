@@ -1,4 +1,3 @@
-import networkx as nx
 
 def homopoly(kmer):
     """Check if kmer is a homopolymer"""
@@ -24,6 +23,8 @@ def findTiling(hsp):
     path trough the graph than represents the set of maximum scoring 
     non-overlapping matches.
     """
+    import networkx as nx
+    
     G=nx.DiGraph()
     nodes = []
     b_edges = []

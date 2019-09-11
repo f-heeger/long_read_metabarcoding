@@ -1,4 +1,4 @@
-from herlpers import lca
+from helpers import lca
 
 maxE = snakemake.config["itsMaxEvalue"]
 topPerc = snakemake.config["itsTopPercent"]

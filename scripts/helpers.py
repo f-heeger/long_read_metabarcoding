@@ -51,18 +51,15 @@ def findTiling(hsp):
                 c_edges.append(("S%i" % j, "E%i" % i, 0))
     G.add_weighted_edges_from(c_edges)
 
-    #find sources and start node
+    #find sources and sinks and add START and END node
     s_edges = []
-    for node, id in G.in_degree_iter():
-        if id==0:
+    for node in G.nodes():
+        if G.in_degree(node) == 0:
             s_edges.append(("START", node, 0))
+        if G.out_degree(node) == 0:
+            s_edges.append((node, "END", 0))
     G.add_weighted_edges_from(s_edges)
-    #find sinks and add end node
-    e_edges = []
-    for node, od in G.out_degree_iter():
-        if od==0:
-            e_edges.append((node, "END", 0))
-    G.add_weighted_edges_from(e_edges)
+        
     #find shortest (ie. maximum score) path from start to end
     pre, dist = nx.floyd_warshall_predecessor_and_distance(G)
     if dist["END"]["START"] < dist["START"]["END"]:
@@ -71,12 +68,16 @@ def findTiling(hsp):
     else:
         start = "START"
         end = "END"
+    #"record" shortest reverse path by
+    # traversing backword from end to start along the shortest path
+    # by going always to the predecessor in the shortet path
     current = end
     path = []
     while pre["START"][current] != start:
         path.append(pre["START"][current])
         current = pre["START"][current]
     
+    #return the reverse of the path, exluding the artificial start and end nodes
     return [int(p[1:]) for p in path[::-2]]
 
 def lca(lineageStrings, stringency=1.0, 

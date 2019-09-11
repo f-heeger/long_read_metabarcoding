@@ -246,7 +246,7 @@ rule prepPrecluster:
 rule preCluster:
     """Pre-cluster at 99% similarity with vsearch, create consensus sequence"""
     input: "preclusters/{sample}_cluInput.fasta"
-    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta", msa="consensus/{sample}_msa.fasta"
+    output: uc="preclusters/{sample}.uc.txt", cons="consensus/{sample}_consensus.fasta"
     log: "logs/{sample}_pre-cluster.log"
     threads: 6
     conda:

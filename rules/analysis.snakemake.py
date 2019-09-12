@@ -1,3 +1,4 @@
+import pickle
 
 rule concatItsxResult:
     """Concatenate ITSx results from different samples"""
@@ -297,7 +298,7 @@ rule clsSummary:
 rule plotClsComp:
     """Create plots of classifications depth"""
     input: all="taxonomy/{sampleSet}_97_comb.stats.tsv"
-    output: depth="{sampleSet}_clsComp_depth.svg", depthFungi="{sampleSet}_clsComp_depth_fungi.svg", block="{sampleSet}_clsComp_basic.svg"
+    output: depth="{sampleSet}_clsComp_depth.pdf", depthFungi="{sampleSet}_clsComp_depth_fungi.pdf", block="{sampleSet}_clsComp_basic.pdf"
     conda:
         "../envs/ggplot.yaml"
     script:

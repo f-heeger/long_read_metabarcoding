@@ -41,7 +41,7 @@ for line in open(snakemake.input.lam, encoding="latin-1"):
     else:
         hsp[otuId][sseqid].append((int(qstart), int(qend), float(bitscore)))
 topPerc = topPerc/100.0
-with open(snakemake.output[0], "w") as out, open(log[2], "w") as tLog, open(log[1], "w") as logTax:
+with open(snakemake.output[0], "w") as out, open(snakemake.log[2], "w") as tLog, open(snakemake.log[1], "w") as logTax:
     for otuId in hsp.keys():
         hits = []
         for sId, tHsp in hsp[otuId].items():

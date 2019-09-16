@@ -1,0 +1,4 @@
+channels:
+ - bioconda
+dependencies:
+ - lima=1.10.0

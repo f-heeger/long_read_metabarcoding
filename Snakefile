@@ -16,8 +16,13 @@ config["rv_rev_primer"] = "".join(comp[base] for base in config["rev_primer"][::
 
 samples = {}
 for line in open("samples.tsv"):
-    sId, sPath, sName = line.strip("\n").split("\t")
-    samples[sId] = {"path": sPath, "name": sName}
+    if line[0] == "#":
+        continue
+    sId, sName, fwdBcId, fwdBcSeq, revBcId, revBcSeq = line.strip("\n").split("\t")
+    samples[sId] = {"name": sName, 
+                    "fwdBarcodeId": fwdBcId, "revBarcodeId": revBcId,
+                    "fwdBarcodeSeq": fwdBcSeq, "revBarcodeSeq": revBcSeq,
+                    }
 
 config["samples"] = samples
 

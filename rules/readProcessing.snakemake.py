@@ -16,7 +16,7 @@ rule createBam:
 
 rule ccs:
     input: "raw/{part}.subreads.bam"
-    output: "raw/{part}.ccs.bam"
+    output: "ccs/{part}.ccs.bam"
     log: "logs/ccs/{part}.ccs.log", "logs/ccs/{part}_css_report.txt"
     threads: 6
     conda:
@@ -24,21 +24,41 @@ rule ccs:
     shell:
         "ccs --minPasses %(minPass)s --minPredictedAccuracy %(minAcc)s -j {threads} --logFile {log[0]} --reportFile {log[1]} {input} {output}" % config
 
+
+rule mergeCcs:
+    input: expand("ccs/{part}.ccs.bam", part=config["parts"])
+    output: "ccs/all.ccs.bam"
+    threads: 6
+    conda:
+        "../envs/samtools.yaml"
+    shell:
+        "samtools merge -@{threads} {output} {input}"
+
+rule barcodeFiles:
+    output: "barcodes.fasta"
+    script:
+        "../scripts/processing_createBarcodeFile.py"
+
+
+rule demultiplex:
+    input: bam="ccs/all.ccs.bam", bc="barcodes.fasta"
+    output: expand("fastq/{sample}.bam", sample=samples.keys())
+    conda:
+        "../envs/lima.yaml"
+    script:
+        "../scripts/processing_demultiplex.py"
+
 rule bam2fastq:
-    input: "raw/{part}.ccs.bam"
-    output: "raw/{part}.ccs.fastq.gz"
+    input: "fastq/{sample}.bam"
+    output: "fastq/{sample}.fastq.gz"
     conda:
         "../envs/bam2fastx.yaml"
     shell:
-        "bam2fastq -o raw/{wildcards.part}.ccs {input}"
-
-def rawFileInput(wildcards):
-    return ["raw/m190902_060748_42244_c101509812550000001823327603152127_s1_p0.1.ccs.fastq.gz"]
-    #return config["samples"][wildcards.sample]["path"]
+        "bam2fastq -o fastq/{wildcards.sample} {input}"
 
 rule fastqc:
     """Run fastqc an all samples"""
-    input: rawFileInput
+    input: "fastq/{sample}.fastq.gz"
     output: "QC/{sample}_fastqc.html"
     threads: 6
     conda:
@@ -55,9 +75,15 @@ rule multiqc:
     shell:
         "multiqc -f --interactive -o QC QC/*_fastqc.zip" % config
 
+rule concatFastq:
+    input: expand("fastq/{sample}.fastq.gz", sample=samples)
+    output: "fastq/all.fastq.gz"
+    shell:
+        "zcat {input} | gzip -c > {output}"
+
 rule lengthFilter:
     """Filter reads by minimum and maximum length"""
-    input: rawFileInput
+    input: "fastq/{sample}.fastq.gz"
     output: right="lenFilter/{sample}_rightLen.fastq.gz", long="lenFilter/{sample}_tooLong.fastq.gz", short="lenFilter/{sample}_tooShort.fastq.gz"
     log: "logs/{sample}_lenFilter.log"
     conda:

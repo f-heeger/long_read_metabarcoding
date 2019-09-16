@@ -1,8 +1,5 @@
 from Bio import SeqIO
 
-file2sample = dict(zip([s["path"] for s in snakemake.config["samples"].values()],
-                       snakemake.config["samples"].keys()))
-
 with open(snakemake.output[0], "w") as out:
     #raw
     for rawFileName in snakemake.input:
@@ -15,5 +12,5 @@ with open(snakemake.output[0], "w") as out:
                 except StopIteration:
                     break
                 i+=1
-            
+            sample = rawFileName.split("/")[-1].split(".")[0]
             out.write("raw\t%s\t%i\n" % (file2sample[rawFileName], i))

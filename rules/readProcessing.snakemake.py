@@ -198,7 +198,7 @@ def readNumbers_rawInput(wildcards):
 
 rule readNumbers_raw:
     """Count raw reads"""
-    input: readNumbers_rawInput
+    input: expand("fastq/{sample}.fastq.gz", sample=samples)
     output: "readNumbers/rawReadNumbers.tsv"
     conda:
         "../envs/biopython.yaml"

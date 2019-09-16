@@ -2,10 +2,6 @@ import os
 
 from snakemake.shell import shell
 
-#shell("felxbar -n %s --zip-output --barcode-trim-end LTAIL -t demultiplex/fbOut -be %s -b %s -r %s" % (snakemake.threads, snakemake.config["barcodeErr"], snakemake.fwd, snakemake.input.fastq))
-
-#shell("felxbar -n %s --zip-output --barcode-trim-end LTAIL -t demultiplex/fbOut -be %s -b %s -r %s" % (snakemake.threads, snakemake.config["barcodeErr"], snakemake.fwd, snakemake.input.fastq))
-
 shell("lima --different --ccs --split-bam-named %s %s fastq/sample.bam" % (snakemake.input.bam, snakemake.input.bc))
 
 for sId, sample in snakemake.config["samples"].items():

@@ -18,10 +18,11 @@ samples = {}
 for line in open("samples.tsv"):
     if line[0] == "#":
         continue
-    sId, sName, fwdBcId, fwdBcSeq, revBcId, revBcSeq = line.strip("\n").split("\t")
+    sId, sName, fwdBcId, fwdBcSeq, revBcId, revBcSeq, group = line.strip("\n").split("\t")
     samples[sId] = {"name": sName, 
                     "fwdBarcodeId": fwdBcId, "revBarcodeId": revBcId,
                     "fwdBarcodeSeq": fwdBcSeq, "revBarcodeSeq": revBcSeq,
+                    "group": group
                     }
 
 config["samples"] = samples

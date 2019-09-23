@@ -1,11 +1,11 @@
 rule db_getUniteFile:
-    output: "%(dbFolder)s/sh_general_release_dynamic_%(unite_version)s.fasta" % config
+    output: "%(dbFolder)s/sh_general_release_dynamic_%(uniteVersion)s.fasta" % config
     log: "logs/unite_dl.log"
     shell:
         "cd %(dbFolder)s;"\
-        "wget -o {log} -O sh_general_release_dynamic_%(unite_version)s.zip %(uniteUrl)s;"\
-        "unzip sh_general_release_dynamic_%(unite_version)s.zip;"\
-        "rm sh_general_release_dynamic_%(unite_version)s.zip" % config
+        "wget -o {log} -O sh_general_release_dynamic_%(uniteVersion)s.zip %(uniteUrl)s;"\
+        "unzip sh_general_release_dynamic_%(uniteVersion)s.zip;"\
+        "rm sh_general_release_dynamic_%(uniteVersion)s.zip" % config
 
 rule createUniteTax:
     """create a tsv file with taxon information for UNITE sequences and remove 

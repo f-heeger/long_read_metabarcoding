@@ -255,10 +255,10 @@ rule catReadNumber:
 
 #rule plotReadNumber:
 #    """Plot read number after each filtering step"""
-#    input: "readNumbers/readNumbers.tsv"
-#    output: graph="readNumbers.svg", tab="readNumbersTab.tsv"
+#    input: "readNumbers/readNumbers.tsv", "samples.tsv"
+#    output: filering="readNumbers/readNumbersFiltering.svg", groups="readNumbers/readNumbersGroups.svg"
 #    script:
-#       "scripts/readProcessing.R"
+#       "scripts/plotReadNumber.R"
         
 rule prepPrecluster:
     """Prepare reads for pre-clustering i.e. sort them by mean quality"""
@@ -309,6 +309,20 @@ rule itsx:
         "../envs/itsx.yaml"
     shell:
         "ITSx -t . -i {input} -o itsx/{wildcards.sample} --save_regions SSU,ITS1,5.8S,ITS2,LSU --complement F --cpu {threads} --graphical F --detailed_results T --partial 100 -E 1e-4 2> {log}" % config
+
+rule collectLogData:
+    input: raw="readNumbers/rawReadNumbers.tsv", length=expand("logs/{sample}_lenFilter.log", sample=samples), qual=expand("logs/{sample}_qualityFilter.log", sample=samples), window=expand("logs/{sample}_winQualityFilter.log", sample=samples), primer1=expand("logs/{sample}_53_primer.log", sample=samples), primer2=expand("logs/{sample}_35_primer.log", sample=samples), chimera=expand("logs/{sample}_denovoChimera.log", sample=samples), itsx=expand("itsx/{sample}.summary.txt", sample=samples)
+    output: "logs/logData.tsv"
+    script:
+        "../scripts/processing_collectLogData.py"
+
+rule plotRemoval:
+    input: "logs/logData.tsv"
+    output: "readsAfterFiltering.pdf"
+    conda:
+        "../envs/ggplot.yaml"
+    script:
+        "../scripts/processing_plotRemoval.R"
 
 def sampleMappingInput(wildcards):
     """determine input data for sampleMapping rule according to sampleSet wildcard"""

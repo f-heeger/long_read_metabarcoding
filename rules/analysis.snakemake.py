@@ -342,6 +342,12 @@ rule plotChimeraEnv:
     script:
         "../scripts/plotChimeraEnv.py"
 
+rule glomeromycetes:
+    input: "{sampleSet}_otu{ident}_table.tsv"
+    output: "{sampleSet}_otu{ident}_goleromycetes.tsv"
+    script:
+        "../scripts/analysis_glemoeromycetes.py"
+
 #rule combineIsolateCls:
 #    """De novo classify isolates for evaluation"""
 #    input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())

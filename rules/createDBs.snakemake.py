@@ -3,7 +3,7 @@ rule db_getUniteFile:
     log: "logs/unite_dl.log"
     shell:
         "cd %(dbFolder)s;"\
-        "wget -o {log} -O sh_general_release_dynamic_%(uniteVersion)s.zip %(uniteUrl)s;"\
+        "wget -o ../{log} -O sh_general_release_dynamic_%(uniteVersion)s.zip %(uniteUrl)s;"\
         "unzip sh_general_release_dynamic_%(uniteVersion)s.zip;"\
         "rm sh_general_release_dynamic_%(uniteVersion)s.zip" % config
 

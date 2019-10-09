@@ -158,8 +158,8 @@ rule filterPrimer53:
     threads: 6
     conda:
         "../envs/cutadapt.yaml"
-    shell:
-        "cutadapt -g %(fwd_primer)s...%(rv_rev_primer)s --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
+    script:
+        "../scripts/processing_cutadaptWrapperFwd.py"
 
 rule filterPrimer35:
     """Filter sequences by occurence of primer sequences and cut primer sequences
@@ -171,8 +171,9 @@ rule filterPrimer35:
     threads: 6
     conda:
         "../envs/cutadapt.yaml"
-    shell:
-        "cutadapt -g %(rev_primer)s...%(rv_fwd_primer)s --discard-untrimmed --cores {threads} --error-rate %(primerErr)f -o {output} {input} > {log}" % config
+    script:
+        "../scripts/processing_cutadaptWrapperRev.py"
+        
 
 rule combinFilterPrimer:
     """combine the forward and reverse Primer filtered sequences"""

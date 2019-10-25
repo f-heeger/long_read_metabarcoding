@@ -196,45 +196,6 @@ rule createOtuTab:
             for line in tab:
                 out.write("\t".join(line)+"\n")
 
-
-#rule getCorrectCls:
-#    """Get "correct" classification for OTUs based on reference mapping"""
-#    input: otuInfo="otus/Lib4-0018_{ident}otuReadInfo.pic", cls="mapping/assignment/Lib4-0018_filtered_assignments.tsv"
-#    output: "taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv"
-#    run:
-#        readCls = {}
-#        for line in open(input.cls):
-#            read, cls = line.strip().split("\t")[:2]
-#            readCls[read] = cls
-#        read2otu = pickle.load(open(input.otuInfo, "rb"))
-#        otuCls = {}
-#        for read, otu in read2otu.items():
-#            if otu not in otuCls:
-#                otuCls[otu] = {}
-#            tCls = readCls[read]
-#            try:
-#                otuCls[otu][tCls] += 1
-#            except KeyError:
-#                otuCls[otu][tCls] = 1
-#        with open(output[0], "w") as out:
-#            for otu, oCls in otuCls.items():
-#                out.write("%s\t%s\n" % (otu, ",".join(["%s(%i)" % clsItem for clsItem in oCls.items()])))
-
-#rule compareCorrectCls:
-#    """Create table with OTU classifications including the "correct" one"""
-#    input: correct="taxonomy/Lib4-0018_{ident}otu.mappingClass.tsv", otu= "taxonomy/Lib4-0018_{ident}_comb.class.tsv"
-#    output: "taxonomy/Lib4-0018_{ident}_combToCorr.class.tsv"
-#    run:
-#        corrCls = {}
-#        for line in open(input.correct):
-#            otuId, cls = line.strip().split("\t")
-#            corrCls[otuId] = cls
-#        with open(output[0], "w") as out:
-#            for line in open(input.otu):
-#                otuId, size, ssuTax, itsTax, lsuTax  = line.strip().split("\t")
-#                corr = corrCls[otuId]
-#                out.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (otuId, size, corr, ssuTax, itsTax, lsuTax))
-
 rule collectClsStats:
     """Create table of classifications (including depth) as input for ggplot"""
     input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
@@ -324,60 +285,23 @@ rule plotDiff:
     script:
         "../scripts/plotDiff.R"
 
-def plotChimeraEnvInput(wildcards):
-    """determine input data for plotChimera rule according to sample wildcard"""
-    if wildcards.sample == "all":
-        return ["denovoChimera/%s.chimeraReport.tsv" % s for s in samples]
-    elif wildcards.sample in isolates:
-        return ["denovoChimera/%s.chimeraReport.tsv" % s for s in isoaltes[wildcards.sample]]
-    else:
-        return "denovoChimera/%s.chimeraReport.tsv" % wildcards.sample
+#def plotChimeraEnvInput(wildcards):
+#    """determine input data for plotChimera rule according to sample wildcard"""
+#    if wildcards.sample == "all":
+#        return ["denovoChimera/%s.chimeraReport.tsv" % s for s in samples]
+#    elif wildcards.sample in isolates:
+#        return ["denovoChimera/%s.chimeraReport.tsv" % s for s in isoaltes[wildcards.sample]]
+#    else:
+#        return "denovoChimera/%s.chimeraReport.tsv" % wildcards.sample
 
-rule plotChimeraEnv:
-    """Plot chimera data for environmental samples"""
-    input: plotChimeraEnvInput
-    output: tab="denovoChimera/{sample}_chimeraTable.tsv", relative="denovoChimera/{sample}_chimerasRelativeBarplot.svg"
-    conda:
-        "../envs/ggplot.yaml"
-    script:
-        "../scripts/plotChimeraEnv.py"
-
-rule glomeromycetes:
-    input: "{sampleSet}_otu{ident}_table.tsv"
-    output: "{sampleSet}_otu{ident}_goleromycetes.tsv"
-    script:
-        "../scripts/analysis_glemoeromycetes.py"
-
-#rule combineIsolateCls:
-#    """De novo classify isolates for evaluation"""
-#    input: expand("taxonomy/{spec}_97_comb.class.tsv", spec=isolates.keys())
-#    output: "taxonomy/isolates_97_comb.class.tsv"
-#    run:
-#        with open(output[0], "w") as out:
-#            for inputFile in input:
-#                spec = inputFile.split("/", 1)[1].split("_", 1)[0]
-#                for line in open(inputFile):
-#                    out.write("%s\t%s" % (spec, line))
-#            
-
-#rule isolatePreclusterSize:
-#    """Generate table of pre-cluster sizes"""
-#    input: expand("consensus/{sample}_consensus.fasta", sample=[item for sublist in isolates.values() for item in sublist])
-#    output: "isoPreclusterSize.tsv"
-#    run:
-#        samp2iso = {}
-#        for iso, sampleList in isolates.items():
-#            for s in sampleList:
-#                samp2iso[s] = iso
-#        with open(output[0], "w") as out:
-#            for inFilePath in input:
-#                sample = inFilePath.split("/")[1].split("_")[0]
-#                iso = samp2iso[sample]
-#                for rec in SeqIO.parse(open(inFilePath), "fasta"):
-#                    size = rec.id.strip(";").rsplit(";", 1)[1].split("=")[1]
-#                    out.write("%s\t%s\t%s\t%s\n" % (iso, sample, rec.id, size))
-
-
+#rule plotChimeraEnv:
+#    """Plot chimera data for environmental samples"""
+#    input: plotChimeraEnvInput
+#    output: tab="denovoChimera/{sample}_chimeraTable.tsv", relative="denovoChimera/{sample}_chimerasRelativeBarplot.svg"
+#    conda:
+#        "../envs/ggplot.yaml"
+#    script:
+#        "../scripts/plotChimeraEnv.py"
 
 
 

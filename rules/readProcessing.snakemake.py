@@ -1,12 +1,5 @@
 import re
 
-#rule getData:
-#    """Download read data from the SRA"""
-#    output: "%(inFolder)s/{sample}.fastq" % config
-#    run:
-#        sId = sampleInfo["sraID"][wildcards.sample]
-#        shell("%(fastq-dump)s" % config + " %s -Z > {output}" % sId)
-
 rule createBam:
     input: "raw/{part}.bax.h5"
     output: "raw/{part}.subreads.bam"
@@ -49,13 +42,6 @@ rule demultiplex:
     script:
         "../scripts/processing_demultiplex.py"
 
-#rule bam2fastq:
-#    input: "fastq/{sample}.bam"
-#    output: "fastq/{sample}.fastq.gz"
-#    conda:
-#        "../envs/bam2fastx.yaml"
-#    shell:
-#        "bam2fastq -o fastq/{wildcards.sample} {input}"
 
 def createFastqGzInput(wildcards):
     sraId = config["samples"][wilcards.sample]["sraId"]
@@ -203,14 +189,6 @@ rule combinFilterPrimer:
         "../scripts/processing_combineFilterPrimer.py"
     
 
-#rule fastq2fasta:
-#    """Convert reads from fastq to fasta"""
-#    input: "primers/{sample}_primer.fastq"
-#    output: "primers/{sample}_primer.fasta"
-#    conda:
-#        "../envs/biopython.yaml"
-#    script:
-#        "../scripts/processing_windowQualityFilter.py"
 
 def readNumbers_rawInput(wildcards):
     return [s["path"] for s in config["samples"].values()]
@@ -326,33 +304,6 @@ rule removeChimeraDenovo:
     shell:
         "vsearch --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
 
-rule compareChimera:
-    input: denovo="denovoChimera/{sample}.chimeraReport.tsv", ref="refChimera/{sample}.chimeraReport.tsv", cluster2read="preclusters/{sample}_cluInfo.tsv"
-    output: "refChimera_{sample}_comp.tsv"
-    run:
-        clu2read = {}
-        for line in open(input.cluster2read):
-            clu, read = line.strip().split("\t")
-            try:
-                clu2read[clu].append(read)
-            except KeyError:
-                clu2read[clu] = [read]
-        ref={}
-        for line in open(input.ref):
-            arr = line.strip().split("\t")
-            scr=arr[0]
-            readId = arr[1]
-            cls = arr[-1]
-            ref[readId] = (cls, scr)
-        with open(output[0], "w") as out:
-            out.write("readId\tclusterNr\tclusterId\tdenovoScr\tdenovo\trefScr\tref\n")
-            for l,line in enumerate(open(input.denovo)):
-                arr = line.strip().split("\t")
-                scr=arr[0]
-                cluId = arr[1].split("=", 1)[1].split(";", 1)[0]
-                cls = arr[-1]
-                for rId in clu2read[cluId]:
-                    out.write("%s\tcluster%i\t%s\t%s\t%s\t%s\t%s\n" % (rId, l, cluId, scr, cls, ref[rId][1], ref[rId][0]))
 
 rule itsx:
     """Run ITSx on pre-cluster"""   

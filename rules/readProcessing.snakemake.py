@@ -1,3 +1,4 @@
+import re
 
 #rule getData:
 #    """Download read data from the SRA"""
@@ -48,13 +49,30 @@ rule demultiplex:
     script:
         "../scripts/processing_demultiplex.py"
 
-rule bam2fastq:
-    input: "fastq/{sample}.bam"
+#rule bam2fastq:
+#    input: "fastq/{sample}.bam"
+#    output: "fastq/{sample}.fastq.gz"
+#    conda:
+#        "../envs/bam2fastx.yaml"
+#    shell:
+#        "bam2fastq -o fastq/{wildcards.sample} {input}"
+
+def createFastqGzInput(wildcards):
+    sraId = config["samples"][wilcards.sample]["sraId"]
+    if len(sraId) == 0:
+        return ["fastq/%s.bam" % wildcards.sample]
+    elif re.match("SRR[0-9]{7}", sraId) is None
+        raise RuntimeError("Data source %s for sample %s is invalid" % ())
+    else:
+        return []
+
+rule createFastqGz:
+    input: createFastqGzInput
     output: "fastq/{sample}.fastq.gz"
     conda:
-        "../envs/bam2fastx.yaml"
-    shell:
-        "bam2fastq -o fastq/{wildcards.sample} {input}"
+        "../envs/createFastqGz.yaml"
+    script:
+        "../scripts/createFastqGz.py"
 
 rule fastqc:
     """Run fastqc an all samples"""
@@ -299,6 +317,42 @@ rule preClusterInfo:
                 else:
                     raise ValueError("Unknown record type: %s" % line[0])
 
+rule removeChimeraDenovo:
+    input: seqs="consensus/{sample}_consensus.fasta"
+    output: fasta="denovoChimera/{sample}.nochimera.fasta", tsv="denovoChimera/{sample}.chimeraReport.tsv"
+    log: "logs/{sample}_denovoChimera.log"
+    conda:
+        "../envs/vsearch.yaml"
+    shell:
+        "vsearch --uchime_denovo {input.seqs} --nonchimeras {output.fasta} --uchimeout {output.tsv} &> {log}" % config
+
+rule compareChimera:
+    input: denovo="denovoChimera/{sample}.chimeraReport.tsv", ref="refChimera/{sample}.chimeraReport.tsv", cluster2read="preclusters/{sample}_cluInfo.tsv"
+    output: "refChimera_{sample}_comp.tsv"
+    run:
+        clu2read = {}
+        for line in open(input.cluster2read):
+            clu, read = line.strip().split("\t")
+            try:
+                clu2read[clu].append(read)
+            except KeyError:
+                clu2read[clu] = [read]
+        ref={}
+        for line in open(input.ref):
+            arr = line.strip().split("\t")
+            scr=arr[0]
+            readId = arr[1]
+            cls = arr[-1]
+            ref[readId] = (cls, scr)
+        with open(output[0], "w") as out:
+            out.write("readId\tclusterNr\tclusterId\tdenovoScr\tdenovo\trefScr\tref\n")
+            for l,line in enumerate(open(input.denovo)):
+                arr = line.strip().split("\t")
+                scr=arr[0]
+                cluId = arr[1].split("=", 1)[1].split(";", 1)[0]
+                cls = arr[-1]
+                for rId in clu2read[cluId]:
+                    out.write("%s\tcluster%i\t%s\t%s\t%s\t%s\t%s\n" % (rId, l, cluId, scr, cls, ref[rId][1], ref[rId][0]))
 
 rule itsx:
     """Run ITSx on pre-cluster"""   

@@ -6,14 +6,6 @@ shell.prefix("sleep 10; ") #work around to deal with "too quick" rule execution 
 
 configfile: "config.json"
 
-comp = {"A": "T", "T": "A", "C": "G", "G": "C",
-        "W": "W", "M": "K", "K": "M", "R": "Y",
-        "Y": "R", "S": "S", "H": "D", "D": "H",
-        "V": "B", "B": "V", "N": "N"}
-
-config["rv_fwd_primer"] = "".join(comp[base] for base in config["fwd_primer"][::-1])
-config["rv_rev_primer"] = "".join(comp[base] for base in config["rev_primer"][::-1])
-
 samples = {}
 for line in open("samples.tsv"):
     if line[0] == "#":

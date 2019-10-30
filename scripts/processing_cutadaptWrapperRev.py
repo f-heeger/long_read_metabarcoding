@@ -10,6 +10,15 @@ if os.path.getsize(snakemake.input[0]) == 0:
     open(snakemake.output[0], "w").close()
     exit(0)
 else:
-    cmd = ["cutadapt", "-g" , "%(rev_primer)s...%(rv_fwd_primer)s" % snakemake.config, "--discard-untrimmed", "--cores",  snakemake.threads, "--error-rate", snakemake.config["primerErr"], "-o", snakemake.output[0], snakemake.input[0]]
+    comp = {"A": "T", "T": "A", "C": "G", "G": "C",
+            "W": "W", "M": "K", "K": "M", "R": "Y",
+            "Y": "R", "S": "S", "H": "D", "D": "H",
+            "V": "B", "B": "V", "N": "N"}
+    
+    fBC = snakemake.config["samples"][snakemake.wildcards.sample]["fwdBarcodeSeq"]
+    rBC = snakemake.config["samples"][snakemake.wildcards.sample]["revBarcodeSeq"]
+    rc_fBC = "".join(comp[base] for base in fBC[::-1])
+
+    cmd = ["cutadapt", "-g" , "%s...%s" % (rBC, rc_fBC), "--discard-untrimmed", "--cores", str(snakemake.threads), "--error-rate", str(snakemake.config["primerErr"]), "-o", snakemake.output[0], snakemake.input[0]]
 
     exit(subprocess.call(cmd, stdout=open(snakemake.log[0], "w")))

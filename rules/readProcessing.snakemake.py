@@ -157,7 +157,7 @@ rule filterPrimer53:
     """Filter sequences by occurence of primer sequences and cut primer sequences
     with forward primer in the front and reverse primer in the end"""
     input: "windowQualFilter/{sample}_goodQual.fasta"
-    output: fastq="primers/{sample}_53.fasta"
+    output: temp(fastq="primers/{sample}_53.fasta")
     log: "logs/{sample}_53_primer.log"
     threads: 6
     conda:
@@ -170,7 +170,7 @@ rule filterPrimer35:
     with reverse complement reverse-primer in the front and 
     reverse complement forward-primer in the end"""
     input: "windowQualFilter/{sample}_goodQual.fasta"
-    output: fastq="primers/{sample}_35.fasta"
+    output: temp(fastq="primers/{sample}_35.fasta")
     log: "logs/{sample}_35_primer.log"
     threads: 6
     conda:

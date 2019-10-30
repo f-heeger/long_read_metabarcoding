@@ -259,7 +259,7 @@ rule clsSummary:
 rule plotClsComp:
     """Create plots of classifications depth"""
     input: all="taxonomy/{sampleSet}_97_comb.stats.tsv"
-    output: depth="{sampleSet}_clsComp_depth.pdf", depthFungi="{sampleSet}_clsComp_depth_fungi.pdf", block="{sampleSet}_clsComp_basic.pdf"
+    output: depth="{sampleSet}_clsComp_depth.svg", depthFungi="{sampleSet}_clsComp_depth_fungi.svg"
     conda:
         "../envs/ggplot.yaml"
     script:
@@ -274,7 +274,7 @@ rule compareCls:
     input: cls="taxonomy/{sampleSet}_97_comb.class.tsv"
     output: diff="{sampleSet}_clsDiff.tsv", comp="{sampleSet}_clsComp.tsv", diffStat="{sampleSet}_clsDiffStat.tsv"
     script:
-        "../scripts/analysis_compareClass.py"
+        "../scripts/analysis_compareCls.py"
 
 rule plotDiff:
     """Plot comparison data of classification with different markers"""

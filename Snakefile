@@ -32,9 +32,8 @@ config["samples"] = samples
 
 include: "rules/createDBs.snakemake.py"
 include: "rules/readProcessing.snakemake.py"
-include: "rules/chimera_analysis.snakemake.py"
 include: "rules/analysis.snakemake.py"
 
 rule all:
-    input: "all_otu97_table.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsDiffStat.svg", "readNumbers.svg"
+    input: "all_otu97_table.tsv", "all_clsComp_depth.svg", "all_clsComp_depth_fungi.svg", "all_clsDiffStat.svg", "readNumbers/readNumbersFiltering.svg", "readsAfterFiltering.pdf"
 

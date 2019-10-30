@@ -44,10 +44,10 @@ rule demultiplex:
 
 
 def createFastqGzInput(wildcards):
-    sraId = config["samples"][wilcards.sample]["sraId"]
+    sraId = config["samples"][wildcards.sample]["sraId"]
     if len(sraId) == 0:
         return ["fastq/%s.bam" % wildcards.sample]
-    elif re.match("SRR[0-9]{7}", sraId) is None
+    elif re.match("SRR[0-9]{7}", sraId) is None:
         raise RuntimeError("Data source %s for sample %s is invalid" % ())
     else:
         return []
@@ -250,12 +250,12 @@ rule catReadNumber:
                     stage, sample, number = line.strip().split("\t")
                     out.write("%s\t%s\t%s\t%s\n" % (stage, sample, samples[sample]["name"], number))
 
-#rule plotReadNumber:
-#    """Plot read number after each filtering step"""
-#    input: "readNumbers/readNumbers.tsv", "samples.tsv"
-#    output: filering="readNumbers/readNumbersFiltering.svg", groups="readNumbers/readNumbersGroups.svg"
-#    script:
-#       "scripts/plotReadNumber.R"
+rule plotReadNumber:
+    """Plot read number after each filtering step"""
+    input: "readNumbers/readNumbers.tsv", "samples.tsv"
+    output: filtering="readNumbers/readNumbersFiltering.svg", groups="readNumbers/readNumbersGroups.svg"
+    script:
+       "../scripts/plotReadNumber.R"
         
 rule prepPrecluster:
     """Prepare reads for pre-clustering i.e. sort them by mean quality"""

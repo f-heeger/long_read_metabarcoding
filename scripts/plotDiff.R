@@ -1,7 +1,7 @@
 library(ggplot2)
 library(reshape2)
 
-d=read.table(snakemake@input, sep="\t")
+d=read.table(snakemake@input[[1]], sep="\t")
 colnames(d) = c("oId", "size", "fungi", "mrk1", "mrk2", "domain", "kingdom", "phylum", "class", "order", "family", "genus", "species")
 
 for (lvl in c("kingdom", "phylum", "class", "order", "family", "genus", "species")) {
@@ -47,4 +47,4 @@ for (m1 in mrk) {
 #ggplot(a) + geom_line(aes(x=variable, y=pAss, group=value, color=value)) + facet_grid(mrk1~mrk2, switch="y") + scale_color_manual(values=c("grey30", "red", "blue")) + labs(y="proportion of comparable OTUs", x="taxonomic level") + theme_bw()
 a$comp=paste(a$mrk1, a$mrk2, sep="-")
 ggplot(subset(a, value=="same" & (comp %in% c("ssu-its", "ssu-lsu", "its-lsu")) & variable!="domain")) + geom_point(aes(x=variable, y=pAss, color=comp)) + geom_line(aes(x=variable, y=pAss, group=comp, color=comp), linetype=2) + theme_bw() + labs(y="proportion of comparable OTUs that have the same classification", x="taxonomic level")
-ggsave(snakemake@ouput[["prop"]], width=16, height=10)
+ggsave(snakemake@output[["prop"]], width=16, height=10)

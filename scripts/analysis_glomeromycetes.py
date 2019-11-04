@@ -1,5 +1,3 @@
-from __future__ import division
-
 glomeroOtu = {}
 oCount = {}
 
@@ -32,7 +30,7 @@ with open(snakemake.input[0]) as inStream:
         oCount[oId] = dict(zip(sampleIds, [int(c) for c in countStr.split("\t")]))
 
 with open(snakemake.output[0], "w") as out:
-    out.write("sample\tglomeroReads\tpropGlomeroReads\tglomeroOtus\n")
+    out.write("sample\tglomeroReads\ttotalReads\tglomeroOtus\n")
     for sId in snakemake.config["samples"]:
         if sId not in sampleIds:
             continue
@@ -43,4 +41,4 @@ with open(snakemake.output[0], "w") as out:
                 total += count[sId]
                 if oId in glomeroOtu:
                     glomeroLs.append(count[sId])
-        out.write("%s\t%i\t%f\t%i\n" % (sId, sum(glomeroLs), sum(glomeroLs)/total, len(glomeroLs)))
+        out.write("%s\t%i\t%i\t%i\n" % (sId, sum(glomeroLs), total, len(glomeroLs)))

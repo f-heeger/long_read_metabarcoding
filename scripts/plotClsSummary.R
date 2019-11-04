@@ -5,8 +5,12 @@ d=read.table(snakemake@input[["all"]], sep="\t")
 colnames(d) = c("oId", "size", "marker", "domain", "kingdom", "phylum", "class", "order", "family", "genus", "species", "depth")
 
 d$marker=factor(d$marker, levels=c("ssu", "its", "lsu"))
-d$oId=factor(d$oId, levels=unique(d[order(d$size, decreasing=T),]$oId))
-ggplot(d[1:600,], aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)) 
+d=d[order(d$size, decreasing=T),]
+
+m = d[1:600,]
+m$oId = factor(m$oId, levels=unique(m[order(m$marker, m$kingdom, -m$depth),]$oId))
+
+ggplot(m, aes(x=oId,fill=phylum, weight=depth)) + geom_bar() + facet_grid(marker~.) + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)) 
 ggsave(snakemake@output[["depth"]], width=16, height=10)
 
 fo = unique(d[d$kingdom=="Fungi",]$oId)

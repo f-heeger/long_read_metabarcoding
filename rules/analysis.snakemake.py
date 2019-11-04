@@ -346,7 +346,7 @@ rule glomeromycetes:
     input: "{sampleSet}_otu{ident}_table.tsv"
     output: "{sampleSet}_otu{ident}_goleromycetes.tsv"
     script:
-        "../scripts/analysis_glemoeromycetes.py"
+        "../scripts/analysis_glomeromycetes.py"
 
 #rule combineIsolateCls:
 #    """De novo classify isolates for evaluation"""

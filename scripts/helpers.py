@@ -82,7 +82,7 @@ def findTiling(hsp):
     return [int(p[1:]) for p in path[::-2]]
 
 def lca(lineageStrings, stringency=1.0, 
-        unidentified=["unidentified", "unclassified", "unknown"],
+        unidentified=["unidentified", "unclassified", "unknown", "uncultured", "uncultured_fungus"],
         ignoreIncertaeSedis=True, sizes=None):
     """Find lowest common ancestor
     
